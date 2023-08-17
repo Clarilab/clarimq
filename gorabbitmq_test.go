@@ -17,10 +17,6 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const (
-	logLevel = slog.LevelError
-)
-
 type testData struct {
 	Name    string `json:"name"`
 	Age     int    `json:"age"`
@@ -28,7 +24,13 @@ type testData struct {
 	Country string `json:"country"`
 }
 
-func Test_Integration_PublishToExchange(t *testing.T) { //nolint:maintidx // table testing
+type testParams struct {
+	exchangeName string
+	queueName    string
+	routingKey   string
+}
+
+func Test_Integration_PublishToExchange(t *testing.T) {
 	t.Parallel()
 
 	stringMessage := "test-message"
@@ -41,49 +43,370 @@ func Test_Integration_PublishToExchange(t *testing.T) { //nolint:maintidx // tab
 		Country: "Country",
 	}
 
-	type testParams struct {
-		exchangeName string
-		queueName    string
-		routingKey   string
+	tests := map[string]struct {
+		deliveryHandler func(any, chan struct{}) gorabbitmq.HandlerFunc
+		getConsumer     func(*gorabbitmq.Connector, gorabbitmq.HandlerFunc, *testParams) (*gorabbitmq.Consumer, error)
+		passiveExchange bool
+		message         any
+	}{
+		"publish to exchange / consume with exchange NoWait": {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
+				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
+					requireEqual(t, expectedMessage, string(d.Body))
+					requireEqual(t, "text/plain", d.ContentType)
+
+					doneChan <- struct{}{}
+
+					return gorabbitmq.Ack
+				}
+			},
+			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
+				return c.NewConsumerAndSubscribe(
+					params.queueName,
+					handler,
+					gorabbitmq.WithExchangeOptionAutoDelete(true),
+					gorabbitmq.WithExchangeOptionDeclare(true),
+					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
+					gorabbitmq.WithExchangeOptionName(params.exchangeName),
+					gorabbitmq.WithExchangeOptionNoWait(true),
+					gorabbitmq.WithQueueOptionAutoDelete(true),
+					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+				)
+			},
+
+			message: stringMessage,
+		},
+		"publish to exchange passive": {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
+				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
+					requireEqual(t, expectedMessage, d.Body)
+					requireEqual(t, "application/octet-stream", d.ContentType)
+
+					doneChan <- struct{}{}
+
+					return gorabbitmq.Ack
+				}
+			},
+			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
+				return c.NewConsumerAndSubscribe(
+					params.queueName,
+					handler,
+					gorabbitmq.WithExchangeOptionAutoDelete(true),
+					gorabbitmq.WithExchangeOptionDeclare(true),
+					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
+					gorabbitmq.WithExchangeOptionName(params.exchangeName),
+					gorabbitmq.WithQueueOptionAutoDelete(true),
+					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+					gorabbitmq.WithExchangeOptionPassive(true),
+				)
+			},
+			passiveExchange: true,
+			message:         bytesMessage,
+		},
+		"publish bytes message": {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
+				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
+					requireEqual(t, expectedMessage, d.Body)
+					requireEqual(t, "application/octet-stream", d.ContentType)
+
+					doneChan <- struct{}{}
+
+					return gorabbitmq.Ack
+				}
+			},
+			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
+				return c.NewConsumerAndSubscribe(
+					params.queueName,
+					handler,
+					gorabbitmq.WithExchangeOptionAutoDelete(true),
+					gorabbitmq.WithExchangeOptionDeclare(true),
+					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
+					gorabbitmq.WithExchangeOptionName(params.exchangeName),
+					gorabbitmq.WithQueueOptionAutoDelete(true),
+					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+				)
+			},
+
+			message: bytesMessage,
+		},
+		"publish json message": {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
+				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
+					requireEqual(t, "application/json", d.ContentType)
+
+					var result testData
+
+					err := json.Unmarshal(d.Body, &result)
+					requireNoError(t, err)
+
+					requireEqual(t, expectedMessage, result)
+
+					doneChan <- struct{}{}
+
+					return gorabbitmq.Ack
+				}
+			},
+			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
+				return c.NewConsumerAndSubscribe(
+					params.queueName,
+					handler,
+					gorabbitmq.WithExchangeOptionAutoDelete(true),
+					gorabbitmq.WithExchangeOptionDeclare(true),
+					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
+					gorabbitmq.WithExchangeOptionName(params.exchangeName),
+					gorabbitmq.WithQueueOptionAutoDelete(true),
+					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+				)
+			},
+			message: jsonMessage,
+		},
 	}
 
-	tests := map[string]struct {
-		testParams      *testParams
-		connector       *gorabbitmq.Connector
-		deliveryHandler func(any, int, chan struct{}) gorabbitmq.HandlerFunc
-		preConsumer     func(*gorabbitmq.Connector, gorabbitmq.HandlerFunc, *testParams) (*gorabbitmq.Consumer, error)
-		getConsumer     func(*gorabbitmq.Connector, gorabbitmq.HandlerFunc, *testParams) (*gorabbitmq.Consumer, error)
-		getPublisher    func(*gorabbitmq.Connector, *testParams) (*gorabbitmq.Publisher, error)
-		publish         func(*testParams) error
-		message         any
-		doneChan        chan struct{}
-	}{
-		"publish to exchange / consume with Ack": {
-			testParams: &testParams{
+	for name, test := range tests {
+		name, test := name, test
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			connector := getConnector()
+
+			t.Cleanup(func() {
+				err := connector.Close()
+				requireNoError(t, err)
+			})
+
+			doneChan := make(chan struct{})
+
+			testParams := &testParams{
 				exchangeName: stringGen(),
 				queueName:    stringGen(),
 				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				),
-					gorabbitmq.WithConnectorOptionConnectionName("test-connection"),
+			}
+
+			if test.passiveExchange {
+				consumer, err := connector.NewConsumerAndSubscribe(
+					testParams.queueName,
+					nil,
+					gorabbitmq.WithExchangeOptionDeclare(true),
+					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
+					gorabbitmq.WithExchangeOptionName(testParams.exchangeName),
+					gorabbitmq.WithQueueOptionAutoDelete(true),
+					gorabbitmq.WithConsumerOptionRoutingKey(testParams.routingKey),
 				)
+
 				requireNoError(t, err)
 
-				return connector
-			}(),
+				err = consumer.Unsubscribe()
+				requireNoError(t, err)
+			}
+
+			consumer, err := test.getConsumer(connector, test.deliveryHandler(test.message, doneChan), testParams)
+			requireNoError(t, err)
+
+			publisher, err := connector.NewPublisher(
+				gorabbitmq.WithPublishOptionExchange(testParams.exchangeName),
+			)
+			requireNoError(t, err)
+
+			err = publisher.Publish(context.TODO(), testParams.routingKey, test.message)
+			requireNoError(t, err)
+
+			<-doneChan
+
+			if test.passiveExchange {
+				err = consumer.RemoveExchange(testParams.exchangeName, false, false)
+				requireNoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_Integration_PublishToQueue(t *testing.T) {
+	t.Parallel()
+
+	message := "test-message"
+
+	tests := map[string]struct {
+		deliveryHandler func(any, chan struct{}) gorabbitmq.HandlerFunc
+		getConsumer     func(*gorabbitmq.Connector, gorabbitmq.HandlerFunc, string) (*gorabbitmq.Consumer, error)
+		passiveQueue    bool
+		publish         func(*gorabbitmq.Publisher, string) error
+	}{
+		"publish to queue": {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
+				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
+					requireEqual(t, expectedMessage, string(d.Body))
+					requireEqual(t, "text/plain", d.ContentType)
+
+					doneChan <- struct{}{}
+
+					return gorabbitmq.Ack
+				}
+			},
+			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
+				return c.NewConsumerAndSubscribe(
+					queueName,
+					handler,
+					gorabbitmq.WithQueueOptionAutoDelete(true),
+					gorabbitmq.WithQueueOptionArgs(gorabbitmq.Table{
+						"test-queue-arg-key": "test-queue-arg-value",
+					}),
+				)
+			},
+			publish: func(p *gorabbitmq.Publisher, target string) error {
+				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+			},
+		},
+		"publish to queue passive": {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
+				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
+					requireEqual(t, expectedMessage, string(d.Body))
+					requireEqual(t, "text/plain", d.ContentType)
+
+					doneChan <- struct{}{}
+
+					return gorabbitmq.Ack
+				}
+			},
+			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
+				return c.NewConsumerAndSubscribe(
+					queueName,
+					handler,
+					gorabbitmq.WithQueueOptionAutoDelete(true),
+					gorabbitmq.WithQueueOptionPassive(true),
+				)
+			},
+			publish: func(p *gorabbitmq.Publisher, target string) error {
+				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+			},
+			passiveQueue: true,
+		},
+		"publish to queue NoWait": {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
+				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
+					requireEqual(t, expectedMessage, string(d.Body))
+					requireEqual(t, "text/plain", d.ContentType)
+
+					doneChan <- struct{}{}
+
+					return gorabbitmq.Ack
+				}
+			},
+			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
+				return c.NewConsumerAndSubscribe(
+					queueName,
+					handler,
+					gorabbitmq.WithQueueOptionAutoDelete(true),
+					gorabbitmq.WithQueueOptionNoWait(true),
+				)
+			},
+			publish: func(p *gorabbitmq.Publisher, target string) error {
+				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+			},
+		},
+		"publish to priority queue": {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
+				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
+					requireEqual(t, expectedMessage, string(d.Body))
+					requireEqual(t, "text/plain", d.ContentType)
+					requireEqual(t, 4, int(d.Priority))
+
+					doneChan <- struct{}{}
+
+					return gorabbitmq.Ack
+				}
+			},
+			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
+				return c.NewConsumerAndSubscribe(
+					queueName,
+					handler,
+					gorabbitmq.WithQueueOptionAutoDelete(true),
+					gorabbitmq.WithQueueOptionPriority(gorabbitmq.HighestPriority),
+				)
+			},
+			publish: func(p *gorabbitmq.Publisher, target string) error {
+				return p.PublishWithOptions(context.TODO(), []string{target}, message, gorabbitmq.WithPublishOptionPriority(gorabbitmq.HighPriority))
+			},
+		},
+		"publish to durable queue": {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
+				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
+					requireEqual(t, expectedMessage, string(d.Body))
+					requireEqual(t, "text/plain", d.ContentType)
+
+					doneChan <- struct{}{}
+
+					return gorabbitmq.Ack
+				}
+			},
+			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
+				return c.NewConsumerAndSubscribe(
+					queueName,
+					handler,
+					gorabbitmq.WithQueueOptionAutoDelete(true),
+					gorabbitmq.WithQueueOptionDurable(true),
+				)
+			},
+			publish: func(p *gorabbitmq.Publisher, target string) error {
+				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+			},
+		},
+	}
+
+	for name, test := range tests {
+		name, test := name, test
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			connector := getConnector()
+
+			t.Cleanup(func() {
+				err := connector.Close()
+				requireNoError(t, err)
+			})
+
+			doneChan := make(chan struct{})
+			queueName := stringGen()
+
+			if test.passiveQueue {
+				consumer, err := connector.NewConsumerAndSubscribe(queueName, nil)
+
+				requireNoError(t, err)
+
+				err = consumer.Unsubscribe()
+				requireNoError(t, err)
+			}
+
+			consumer, err := test.getConsumer(connector, test.deliveryHandler(message, doneChan), queueName)
+			requireNoError(t, err)
+
+			publisher, err := connector.NewPublisher()
+			requireNoError(t, err)
+
+			err = test.publish(publisher, queueName)
+			requireNoError(t, err)
+
+			<-doneChan
+
+			if test.passiveQueue {
+				_, err = consumer.RemoveQueue(queueName, false, false, false)
+				requireNoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_Integration_Consume(t *testing.T) {
+	t.Parallel()
+
+	message := "test-message"
+
+	tests := map[string]struct {
+		deliveryHandler func(any, int, chan struct{}) gorabbitmq.HandlerFunc
+		getConsumer     func(*gorabbitmq.Connector, gorabbitmq.HandlerFunc, *testParams) (*gorabbitmq.Consumer, error)
+	}{
+		"consume with Ack": {
 			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
 				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
@@ -109,39 +432,8 @@ func Test_Integration_PublishToExchange(t *testing.T) { //nolint:maintidx // tab
 					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  stringMessage,
-			doneChan: make(chan struct{}),
 		},
-		"publish to exchange / consume with NackDisgard": {
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
+		"consume with NackDisgard": {
 			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
 				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
@@ -164,39 +456,8 @@ func Test_Integration_PublishToExchange(t *testing.T) { //nolint:maintidx // tab
 					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  stringMessage,
-			doneChan: make(chan struct{}),
 		},
-		"publish to exchange / consume with NackRequeue": {
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
+		"consume with NackRequeue": {
 			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
 				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
@@ -228,41 +489,8 @@ func Test_Integration_PublishToExchange(t *testing.T) { //nolint:maintidx // tab
 					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  stringMessage,
-			doneChan: make(chan struct{}),
 		},
-		"publish to exchange / consume with manual Ack": {
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				),
-					gorabbitmq.WithConnectorOptionConnectionName("test-connection"),
-				)
-				requireNoError(t, err)
-
-				return connector
-			}(),
+		"consume with Manual": {
 			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
 				return func(delivery gorabbitmq.Delivery) gorabbitmq.Action {
 					requireEqual(t, expectedMessage, string(delivery.Body))
@@ -291,39 +519,8 @@ func Test_Integration_PublishToExchange(t *testing.T) { //nolint:maintidx // tab
 					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  stringMessage,
-			doneChan: make(chan struct{}),
 		},
-		"publish to exchange / consume with AutoAck": {
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
+		"consume with AutoAck": {
 			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
 				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
@@ -347,95 +544,8 @@ func Test_Integration_PublishToExchange(t *testing.T) { //nolint:maintidx // tab
 					gorabbitmq.WithConsumerOptionConsumerAutoAck(true),
 				)
 			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  stringMessage,
-			doneChan: make(chan struct{}),
 		},
-		"publish to exchange / consume with exchange NoWait": {
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
-					requireEqual(t, expectedMessage, string(d.Body))
-					requireEqual(t, "text/plain", d.ContentType)
-
-					doneChan <- struct{}{}
-
-					return gorabbitmq.Ack
-				}
-			},
-			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					params.queueName,
-					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithExchangeOptionNoWait(true),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
-				)
-			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  stringMessage,
-			doneChan: make(chan struct{}),
-		},
-		"publish to exchange / consume with consumer NoWait": {
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
+		"consume with consumer NoWait": {
 			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
 				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
@@ -459,39 +569,8 @@ func Test_Integration_PublishToExchange(t *testing.T) { //nolint:maintidx // tab
 					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  stringMessage,
-			doneChan: make(chan struct{}),
 		},
-		"publish to exchange / consume with multiple message handlers": {
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
+		"consume with multiple message handlers": {
 			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
 				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
@@ -515,197 +594,6 @@ func Test_Integration_PublishToExchange(t *testing.T) { //nolint:maintidx // tab
 					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  stringMessage,
-			doneChan: make(chan struct{}),
-		},
-		"publish to exchange passive": {
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
-					requireEqual(t, expectedMessage, d.Body)
-					requireEqual(t, "application/octet-stream", d.ContentType)
-
-					doneChan <- struct{}{}
-
-					return gorabbitmq.Ack
-				}
-			},
-			preConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					params.queueName,
-					handler,
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
-				)
-			},
-			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					params.queueName,
-					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
-					gorabbitmq.WithExchangeOptionPassive(true),
-				)
-			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  bytesMessage,
-			doneChan: make(chan struct{}),
-		},
-		"publish bytes message": {
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
-					requireEqual(t, expectedMessage, d.Body)
-					requireEqual(t, "application/octet-stream", d.ContentType)
-
-					doneChan <- struct{}{}
-
-					return gorabbitmq.Ack
-				}
-			},
-			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					params.queueName,
-					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
-				)
-			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  bytesMessage,
-			doneChan: make(chan struct{}),
-		},
-		"publish json message": {
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
-					requireEqual(t, "application/json", d.ContentType)
-
-					var result testData
-
-					err := json.Unmarshal(d.Body, &result)
-					requireNoError(t, err)
-
-					requireEqual(t, expectedMessage, result)
-
-					doneChan <- struct{}{}
-
-					return gorabbitmq.Ack
-				}
-			},
-			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					params.queueName,
-					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
-				)
-			},
-			getPublisher: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionExchange(params.exchangeName),
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			message:  jsonMessage,
-			doneChan: make(chan struct{}),
 		},
 	}
 
@@ -715,351 +603,40 @@ func Test_Integration_PublishToExchange(t *testing.T) { //nolint:maintidx // tab
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
+			connector := getConnector()
+
 			t.Cleanup(func() {
-				err := test.connector.Close()
+				err := connector.Close()
 				requireNoError(t, err)
 			})
+
+			doneChan := make(chan struct{})
+
+			testParams := &testParams{
+				exchangeName: stringGen(),
+				queueName:    stringGen(),
+				routingKey:   stringGen(),
+			}
 
 			var counter int
 
-			if test.preConsumer != nil {
-				consumer, err := test.preConsumer(test.connector, nil, test.testParams)
-				requireNoError(t, err)
-
-				err = consumer.Unsubscribe()
-				requireNoError(t, err)
-			}
-
-			consumer, err := test.getConsumer(test.connector, test.deliveryHandler(test.message, counter, test.doneChan), test.testParams)
+			_, err := test.getConsumer(connector, test.deliveryHandler(message, counter, doneChan), testParams)
 			requireNoError(t, err)
 
-			publisher, err := test.getPublisher(test.connector, test.testParams)
+			publisher, err := connector.NewPublisher(
+				gorabbitmq.WithPublishOptionExchange(testParams.exchangeName),
+			)
 			requireNoError(t, err)
 
-			err = publisher.Publish(context.TODO(), test.testParams.routingKey, test.message)
+			err = publisher.Publish(context.TODO(), testParams.routingKey, message)
 			requireNoError(t, err)
 
-			<-test.doneChan
-
-			if test.preConsumer != nil {
-				err = consumer.RemoveExchange(test.testParams.exchangeName, false, false)
-				requireNoError(t, err)
-			}
+			<-doneChan
 		})
 	}
 }
 
-func Test_Integration_PublishToQueue(t *testing.T) { //nolint:maintidx // table testing
-	t.Parallel()
-
-	message := "test-message"
-
-	tests := map[string]struct {
-		connector       *gorabbitmq.Connector
-		deliveryHandler func(any, chan struct{}) gorabbitmq.HandlerFunc
-		getConsumer     func(*gorabbitmq.Connector, gorabbitmq.HandlerFunc, string) (*gorabbitmq.Consumer, error)
-		preConsumer     func(*gorabbitmq.Connector, gorabbitmq.HandlerFunc, string) (*gorabbitmq.Consumer, error)
-		getPublisher    func(*gorabbitmq.Connector) (*gorabbitmq.Publisher, error)
-		publish         func(*gorabbitmq.Publisher, string) error
-		message         any
-		doneChan        chan struct{}
-		queueName       string
-	}{
-		"publish to queue": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
-					requireEqual(t, expectedMessage, string(d.Body))
-					requireEqual(t, "text/plain", d.ContentType)
-
-					doneChan <- struct{}{}
-
-					return gorabbitmq.Ack
-				}
-			},
-			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					queueName,
-					handler,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithQueueOptionArgs(gorabbitmq.Table{
-						"test-queue-arg-key": "test-queue-arg-value",
-					}),
-				)
-			},
-			getPublisher: func(c *gorabbitmq.Connector) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			publish: func(p *gorabbitmq.Publisher, target string) error {
-				return p.Publish(context.TODO(), target, message)
-			},
-			doneChan:  make(chan struct{}),
-			message:   message,
-			queueName: stringGen(),
-		},
-		"publish to queue passive": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
-					requireEqual(t, expectedMessage, string(d.Body))
-					requireEqual(t, "text/plain", d.ContentType)
-
-					doneChan <- struct{}{}
-
-					return gorabbitmq.Ack
-				}
-			},
-			preConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					queueName,
-					handler,
-				)
-			},
-			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					queueName,
-					handler,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithQueueOptionPassive(true),
-				)
-			},
-			getPublisher: func(c *gorabbitmq.Connector) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			publish: func(p *gorabbitmq.Publisher, target string) error {
-				return p.Publish(context.TODO(), target, message)
-			},
-			doneChan:  make(chan struct{}),
-			message:   message,
-			queueName: stringGen(),
-		},
-		"publish to queue NoWait": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
-					requireEqual(t, expectedMessage, string(d.Body))
-					requireEqual(t, "text/plain", d.ContentType)
-
-					doneChan <- struct{}{}
-
-					return gorabbitmq.Ack
-				}
-			},
-			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					queueName,
-					handler,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithQueueOptionNoWait(true),
-				)
-			},
-			getPublisher: func(c *gorabbitmq.Connector) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			publish: func(p *gorabbitmq.Publisher, target string) error {
-				return p.Publish(context.TODO(), target, message)
-			},
-			doneChan:  make(chan struct{}),
-			message:   message,
-			queueName: stringGen(),
-		},
-		"publish to priority queue": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
-					requireEqual(t, expectedMessage, string(d.Body))
-					requireEqual(t, "text/plain", d.ContentType)
-					requireEqual(t, 4, int(d.Priority))
-
-					doneChan <- struct{}{}
-
-					return gorabbitmq.Ack
-				}
-			},
-			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					queueName,
-					handler,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithQueueOptionPriority(gorabbitmq.HighestPublishingPriority),
-				)
-			},
-			getPublisher: func(c *gorabbitmq.Connector) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionPriority(gorabbitmq.HighPublishingPriority),
-				)
-			},
-			publish: func(p *gorabbitmq.Publisher, target string) error {
-				return p.Publish(context.TODO(), target, message)
-			},
-			doneChan:  make(chan struct{}),
-			message:   message,
-			queueName: stringGen(),
-		},
-		"publish to durable queue": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
-					requireEqual(t, expectedMessage, string(d.Body))
-					requireEqual(t, "text/plain", d.ContentType)
-
-					doneChan <- struct{}{}
-
-					return gorabbitmq.Ack
-				}
-			},
-			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
-					queueName,
-					handler,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithQueueOptionDurable(true),
-				)
-			},
-			getPublisher: func(c *gorabbitmq.Connector) (*gorabbitmq.Publisher, error) {
-				return c.NewPublisher(
-					gorabbitmq.WithPublishOptionMandatory(true),
-				)
-			},
-			publish: func(p *gorabbitmq.Publisher, target string) error {
-				return p.Publish(context.TODO(), target, message)
-			},
-			doneChan:  make(chan struct{}),
-			message:   message,
-			queueName: stringGen(),
-		},
-	}
-
-	for name, test := range tests {
-		name, test := name, test
-
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			t.Cleanup(func() {
-				err := test.connector.Close()
-				requireNoError(t, err)
-			})
-
-			if test.preConsumer != nil {
-				consumer, err := test.preConsumer(test.connector, nil, test.queueName)
-				requireNoError(t, err)
-
-				err = consumer.Unsubscribe()
-				requireNoError(t, err)
-			}
-
-			consumer, err := test.getConsumer(test.connector, test.deliveryHandler(test.message, test.doneChan), test.queueName)
-			requireNoError(t, err)
-
-			publisher, err := test.getPublisher(test.connector)
-			requireNoError(t, err)
-
-			err = test.publish(publisher, test.queueName)
-			requireNoError(t, err)
-
-			<-test.doneChan
-
-			if test.preConsumer != nil {
-				_, err = consumer.RemoveQueue(test.queueName, false, false, false)
-				requireNoError(t, err)
-			}
-		})
-	}
-}
-
-func Test_Integration_PublishToMultiple(t *testing.T) {
+func Test_Integration_CustomOptions(t *testing.T) {
 	t.Parallel()
 
 	message := "test-message"
@@ -1071,28 +648,9 @@ func Test_Integration_PublishToMultiple(t *testing.T) {
 		deliveryHandler func(any, *sync.WaitGroup) gorabbitmq.HandlerFunc
 		getPublisher    func(*gorabbitmq.Connector) (*gorabbitmq.Publisher, error)
 		publish         func(*gorabbitmq.Publisher, []string) error
-		targets         []string
-		message         any
 	}{
-		"publish to multiple": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
+		"publish with options": {
+			connector: getConnector(),
 			deliveryHandler: func(expectedMessage any, wg *sync.WaitGroup) gorabbitmq.HandlerFunc {
 				return func(delivery gorabbitmq.Delivery) gorabbitmq.Action {
 					requireEqual(t, expectedMessage, string(delivery.Body))
@@ -1133,28 +691,21 @@ func Test_Integration_PublishToMultiple(t *testing.T) {
 			publish: func(p *gorabbitmq.Publisher, targets []string) error {
 				return p.PublishWithOptions(context.TODO(), targets, message)
 			},
-			targets: []string{stringGen(), stringGen()},
-			message: message,
 		},
-		"publish to multiple with options": {
+		"publish with custom options": {
 			connector: func() *gorabbitmq.Connector {
 				amqpConfig := gorabbitmq.Config{
 					Properties: amqp.Table{},
 				}
 				amqpConfig.Properties.SetClientConnectionName(stringGen())
 
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithCustomConnectorOptions(
+				return getConnector(gorabbitmq.WithCustomConnectorOptions(
 					&gorabbitmq.ConnectorOptions{
 						ReturnHandler: nil,
 						LogHandler: slog.NewTextHandler(
 							os.Stdout,
 							&slog.HandlerOptions{
-								Level: logLevel,
+								Level: slog.LevelError,
 							},
 						),
 						Config:            &amqpConfig,
@@ -1163,9 +714,6 @@ func Test_Integration_PublishToMultiple(t *testing.T) {
 						ReconnectInterval: 0,
 					},
 				))
-				requireNoError(t, err)
-
-				return connector
 			}(),
 			deliveryHandler: func(expectedMessage any, wg *sync.WaitGroup) gorabbitmq.HandlerFunc {
 				return func(d gorabbitmq.Delivery) gorabbitmq.Action {
@@ -1205,39 +753,41 @@ func Test_Integration_PublishToMultiple(t *testing.T) {
 							ContentEncoding: "",
 							ReplyTo:         "for-rpc-servers",
 							Type:            "",
-							Priority:        gorabbitmq.NoPublishingPriority,
+							Priority:        gorabbitmq.NoPriority,
 							DeliveryMode:    gorabbitmq.TransientDelivery,
 						},
 					),
 				)
 			},
-			targets: []string{stringGen(), stringGen()},
-			message: message,
 		},
 	}
 
 	for name, test := range tests {
 		name, test := name, test
+
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+
 			t.Cleanup(func() {
 				err := test.connector.Close()
 				requireNoError(t, err)
 			})
+
+			targets := []string{stringGen(), stringGen()}
 
 			wg := &sync.WaitGroup{}
 
 			wg.Add(2)
 
 			_, err := test.connector.NewConsumerAndSubscribe(
-				test.targets[0],
-				test.deliveryHandler(test.message, wg),
+				targets[0],
+				test.deliveryHandler(message, wg),
 				gorabbitmq.WithQueueOptionAutoDelete(true),
 				gorabbitmq.WithConsumerOptionConsumerName(fmt.Sprintf("my_consumer_%s", stringGen())),
 			)
 			requireNoError(t, err)
 
-			_, err = test.connector.NewConsumerAndSubscribe(test.targets[1], test.deliveryHandler(test.message, wg), gorabbitmq.WithCustomConsumeOptions(
+			_, err = test.connector.NewConsumerAndSubscribe(targets[1], test.deliveryHandler(message, wg), gorabbitmq.WithCustomConsumeOptions(
 				&gorabbitmq.ConsumeOptions{
 					ConsumerOptions: &gorabbitmq.ConsumerOptions{
 						Args: make(gorabbitmq.Table),
@@ -1262,7 +812,7 @@ func Test_Integration_PublishToMultiple(t *testing.T) {
 			publisher, err := test.getPublisher(test.connector)
 			requireNoError(t, err)
 
-			err = test.publish(publisher, test.targets)
+			err = test.publish(publisher, targets)
 			requireNoError(t, err)
 
 			wg.Wait()
@@ -1273,37 +823,11 @@ func Test_Integration_PublishToMultiple(t *testing.T) {
 func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 	t.Parallel()
 
-	type testParams struct {
-		exchangeName string
-		queueName    string
-		routingKey   string
-	}
-
 	tests := map[string]struct {
-		testParams  *testParams
-		connector   *gorabbitmq.Connector
 		getConsumer func(*gorabbitmq.Connector, *testParams) (*gorabbitmq.Consumer, error)
 		action      func(*gorabbitmq.Consumer, *testParams) error
 	}{
 		"remove queue": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
 			getConsumer: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Consumer, error) {
 				return c.NewConsumerAndSubscribe(params.queueName, nil)
 			},
@@ -1315,31 +839,8 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 
 				return nil
 			},
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
 		},
 		"remove exchange": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
 			getConsumer: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Consumer, error) {
 				return c.NewConsumerAndSubscribe(
 					params.queueName,
@@ -1357,31 +858,8 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 
 				return nil
 			},
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
 		},
 		"remove binding": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
 			getConsumer: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Consumer, error) {
 				return c.NewConsumerAndSubscribe(
 					params.queueName,
@@ -1407,11 +885,6 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 
 				return nil
 			},
-			testParams: &testParams{
-				exchangeName: stringGen(),
-				queueName:    stringGen(),
-				routingKey:   stringGen(),
-			},
 		},
 	}
 
@@ -1421,15 +894,23 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
+			testParams := &testParams{
+				exchangeName: stringGen(),
+				queueName:    stringGen(),
+				routingKey:   stringGen(),
+			}
+
+			connector := getConnector()
+
 			t.Cleanup(func() {
-				err := test.connector.Close()
+				err := connector.Close()
 				requireNoError(t, err)
 			})
 
-			consumer, err := test.getConsumer(test.connector, test.testParams)
+			consumer, err := test.getConsumer(connector, testParams)
 			requireNoError(t, err)
 
-			err = test.action(consumer, test.testParams)
+			err = test.action(consumer, testParams)
 			requireNoError(t, err)
 		})
 	}
@@ -1438,20 +919,7 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 func Test_Integration_SubscribingTwiceReturnsError(t *testing.T) {
 	t.Parallel()
 
-	connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-		UserName: "guest",
-		Password: "guest",
-		Host:     "localhost",
-		Port:     5672,
-	}, gorabbitmq.WithConnectorOptionLogHandler(
-		slog.NewTextHandler(
-			os.Stdout,
-			&slog.HandlerOptions{
-				Level: logLevel,
-			},
-		),
-	))
-	requireNoError(t, err)
+	connector := getConnector()
 
 	t.Cleanup(func() {
 		err := connector.Close()
@@ -1487,22 +955,17 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 		doneChan <- struct{}{}
 	}
 
-	connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-		UserName: "guest",
-		Password: "guest",
-		Host:     "localhost",
-		Port:     5672,
-	}, gorabbitmq.WithConnectorOptionLogHandler(
-		slog.NewTextHandler(
-			os.Stdout,
-			&slog.HandlerOptions{
-				Level: logLevel,
-			},
-		),
-	),
+	connector := getConnector(
 		gorabbitmq.WithConnectorOptionReturnHandler(returnHandler),
+		gorabbitmq.WithConnectorOptionLogHandler(
+			slog.NewTextHandler(
+				os.Stdout,
+				&slog.HandlerOptions{
+					Level: slog.LevelError,
+				},
+			),
+		),
 	)
-	requireNoError(t, err)
 
 	t.Cleanup(func() {
 		err := connector.Close()
@@ -1513,7 +976,7 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	queueName := stringGen()
 	routingKey := stringGen()
 
-	_, err = connector.NewConsumerAndSubscribe(
+	_, err := connector.NewConsumerAndSubscribe(
 		queueName,
 		nil,
 		gorabbitmq.WithExchangeOptionDeclare(true),
@@ -1562,47 +1025,13 @@ func Test_DecodeDeliveryBody(t *testing.T) {
 		connector *gorabbitmq.Connector
 	}{
 		"with standard codec": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				))
-				requireNoError(t, err)
-
-				return connector
-			}(),
+			connector: getConnector(),
 		},
 		"with self-defined codec": {
-			connector: func() *gorabbitmq.Connector {
-				connector, err := gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
-					UserName: "guest",
-					Password: "guest",
-					Host:     "localhost",
-					Port:     5672,
-				}, gorabbitmq.WithConnectorOptionLogHandler(
-					slog.NewTextHandler(
-						os.Stdout,
-						&slog.HandlerOptions{
-							Level: logLevel,
-						},
-					),
-				),
-					gorabbitmq.WithConnectorOptionEncoder(json.Marshal),
-					gorabbitmq.WithConnectorOptionDecoder(json.Unmarshal),
-				)
-				requireNoError(t, err)
-
-				return connector
-			}(),
+			connector: getConnector(
+				gorabbitmq.WithConnectorOptionEncoder(json.Marshal),
+				gorabbitmq.WithConnectorOptionDecoder(json.Unmarshal),
+			),
 		},
 	}
 
@@ -1620,6 +1049,17 @@ func Test_DecodeDeliveryBody(t *testing.T) {
 			requireEqual(t, message, result)
 		})
 	}
+}
+
+func getConnector(options ...gorabbitmq.ConnectorOption) *gorabbitmq.Connector {
+	return gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
+		UserName: "guest",
+		Password: "guest",
+		Host:     "localhost",
+		Port:     5672,
+	},
+		options...,
+	)
 }
 
 func requireEqual(t *testing.T, expected any, actual any) {
