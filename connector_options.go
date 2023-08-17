@@ -15,7 +15,7 @@ const (
 )
 
 type (
-	connectorOption func(*ConnectorOptions)
+	ConnectorOption func(*ConnectorOptions)
 
 	// Config is used in DialConfig and Open to specify the desired tuning
 	// parameters used during a connection open handshake. The negotiated tuning
@@ -69,7 +69,7 @@ func defaultConnectorOptions(uri string) *ConnectorOptions {
 // WithCustomConnectorOptions sets the connector options.
 //
 // It can be used to set all connector options at once.
-func WithCustomConnectorOptions(options *ConnectorOptions) connectorOption { //nolint:revive // no need for exported return type
+func WithCustomConnectorOptions(options *ConnectorOptions) ConnectorOption {
 	return func(opt *ConnectorOptions) {
 		if options != nil {
 			opt.PrefetchCount = options.PrefetchCount
@@ -87,7 +87,7 @@ func WithCustomConnectorOptions(options *ConnectorOptions) connectorOption { //n
 }
 
 // WithConnectorOptionConnectionName sets the name of the connection.
-func WithConnectorOptionConnectionName(name string) connectorOption { //nolint:revive // no need for exported return type
+func WithConnectorOptionConnectionName(name string) ConnectorOption {
 	return func(options *ConnectorOptions) { options.Config.Properties.SetClientConnectionName(name) }
 }
 
@@ -95,29 +95,29 @@ func WithConnectorOptionConnectionName(name string) connectorOption { //nolint:r
 //
 // The default logger handler is a slog.TextHandler with log level set to INFO level,
 // writing to Sdtout.
-func WithConnectorOptionLogHandler(handler slog.Handler) connectorOption { //nolint:revive // no need for exported return type
+func WithConnectorOptionLogHandler(handler slog.Handler) ConnectorOption {
 	return func(o *ConnectorOptions) { o.LogHandler = handler }
 }
 
 // WithConnectorOptionAMQPConfig sets the amqp.Config that will be used to create the connection.
 //
 // Warning: this will override any values set in the ConnectionOptions.
-func WithConnectorOptionAMQPConfig(config *Config) connectorOption { //nolint:revive // no need for exported return type
+func WithConnectorOptionAMQPConfig(config *Config) ConnectorOption {
 	return func(o *ConnectorOptions) { o.Config = config }
 }
 
 // WithConnectorOptionPrefetchCount sets the number of messages that will be prefetched.
-func WithConnectorOptionPrefetchCount(count int) connectorOption { //nolint:revive // no need for exported return type
+func WithConnectorOptionPrefetchCount(count int) ConnectorOption {
 	return func(o *ConnectorOptions) { o.PrefetchCount = count }
 }
 
 // WithConnectorOptionEncoder sets the encoder that will be used to encode messages.
-func WithConnectorOptionEncoder(encoder Encoder) connectorOption { //nolint:revive // no need for exported return type
+func WithConnectorOptionEncoder(encoder JSONEncoder) ConnectorOption {
 	return func(options *ConnectorOptions) { options.Codec.Encoder = encoder }
 }
 
 // WithConnectorOptionDecoder sets the decoder that will be used to decode messages.
-func WithConnectorOptionDecoder(decoder Decoder) connectorOption { //nolint:revive // no need for exported return type
+func WithConnectorOptionDecoder(decoder JSONDecoder) ConnectorOption {
 	return func(options *ConnectorOptions) { options.Codec.Decoder = decoder }
 }
 
@@ -125,6 +125,6 @@ func WithConnectorOptionDecoder(decoder Decoder) connectorOption { //nolint:revi
 //
 // When a publish is undeliverable from being mandatory, it will be returned and can be handled
 // by this return handler.
-func WithConnectorOptionReturnHandler(returnHandler ReturnHandler) connectorOption { //nolint:revive // no need for exported return type
+func WithConnectorOptionReturnHandler(returnHandler ReturnHandler) ConnectorOption {
 	return func(options *ConnectorOptions) { options.ReturnHandler = returnHandler }
 }

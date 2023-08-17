@@ -3,6 +3,7 @@ package gorabbitmq
 import (
 	"context"
 	"fmt"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -21,7 +22,7 @@ type Publisher struct {
 }
 
 // Creates a new Publisher instance. Options can be passed to customize the behavior of the Publisher.
-func (c *Connector) NewPublisher(options ...publishOption) (*Publisher, error) {
+func (c *Connector) NewPublisher(options ...PublishOption) (*Publisher, error) {
 	const errMessage = "failed to create publisher: %w"
 
 	opt := defaultPublishOptions()
@@ -58,10 +59,10 @@ func (publisher *Publisher) Publish(ctx context.Context, target string, data any
 
 // PublishWithOptions publishes a message to one or multiple targets.
 //
-// targets can be a queue names for direct publishing or routing keys.
+// Targets can be a queue names for direct publishing or routing keys.
 //
 // Options can be passed to override the default options just for this publish.
-func (publisher *Publisher) PublishWithOptions(ctx context.Context, targets []string, data any, options ...publishOption) error {
+func (publisher *Publisher) PublishWithOptions(ctx context.Context, targets []string, data any, options ...PublishOption) error {
 	const errMessage = "failed to publish message with options: %w"
 
 	// create new options to not override the default options
@@ -99,6 +100,10 @@ func (publisher *Publisher) sendMessage(ctx context.Context, routingKeys []strin
 	for _, key := range routingKeys {
 		if options.MessageID == "" {
 			options.MessageID = newRandomString()
+		}
+
+		if options.Timestamp.IsZero() {
+			options.Timestamp = time.Now()
 		}
 
 		message := amqp.Publishing{

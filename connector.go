@@ -3,9 +3,9 @@ package gorabbitmq
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"strconv"
-	"strings"
 	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -34,15 +34,18 @@ type Connector struct {
 // NewConnector creates a new Connector instance.
 //
 // Needs to be closed with the Close() method.
-func NewConnector(settings *ConnectionSettings, options ...connectorOption) (*Connector, error) {
-	const errMessage = "failed to create a new connector: %w"
+func NewConnector(settings *ConnectionSettings, options ...ConnectorOption) *Connector {
+	opt := defaultConnectorOptions(
+		fmt.Sprintf("amqp://%s:%s@%s/",
+			url.QueryEscape(settings.UserName),
+			url.QueryEscape(settings.Password),
+			net.JoinHostPort(
+				url.QueryEscape(settings.Host),
+				strconv.Itoa(settings.Port),
+			),
+		),
+	)
 
-	connString, err := connectionString(settings)
-	if err != nil {
-		return nil, fmt.Errorf(errMessage, err)
-	}
-
-	opt := defaultConnectorOptions(connString)
 	for i := 0; i < len(options); i++ {
 		options[i](opt)
 	}
@@ -55,7 +58,7 @@ func NewConnector(settings *ConnectionSettings, options ...connectorOption) (*Co
 		options:        opt,
 		publishCloseWG: &sync.WaitGroup{},
 		consumeCloseWG: &sync.WaitGroup{},
-	}, nil
+	}
 }
 
 // Close gracefully closes the connection to the server.
@@ -125,24 +128,14 @@ func connect(params *connectParams) (*amqp.Connection, *amqp.Channel, error) {
 			return nil, nil, fmt.Errorf(errMessage, err)
 		}
 
-		initWG := &sync.WaitGroup{}
-
-		initWG.Add(1)
-
-		go watchConnectionNotifications(conn, publish, initWG, params.closeWG)
-
-		initWG.Wait()
+		go watchConnectionNotifications(conn, publish, params.closeWG)
 
 		channel, err = createChannel(conn, params.opt.PrefetchCount)
 		if err != nil {
 			return nil, nil, fmt.Errorf(errMessage, err)
 		}
 
-		initWG.Add(1)
-
-		go watchChannelNotifications(channel, publish, params.opt.ReturnHandler, initWG, params.closeWG)
-
-		initWG.Wait()
+		go watchChannelNotifications(channel, publish, params.opt.ReturnHandler, params.closeWG)
 	}
 
 	return conn, channel, nil
@@ -150,8 +143,6 @@ func connect(params *connectParams) (*amqp.Connection, *amqp.Channel, error) {
 
 func createChannel(conn *amqp.Connection, prefetchCount int) (*amqp.Channel, error) {
 	const errMessage = "failed to create channel: %w"
-
-	var err error
 
 	channel, err := conn.Channel()
 	if err != nil {
@@ -168,76 +159,10 @@ func createChannel(conn *amqp.Connection, prefetchCount int) (*amqp.Channel, err
 	return channel, nil
 }
 
-func connectionString(settings *ConnectionSettings) (string, error) {
-	const errMessage = "failed to create connection string: %w"
-
-	var builder strings.Builder
-
-	_, err := builder.WriteString("amqp://")
-	if err != nil {
-		return "", fmt.Errorf(errMessage, err)
-	}
-
-	if len(settings.UserName) > 0 || len(settings.Password) > 0 {
-		_, err = builder.WriteString(url.QueryEscape(settings.UserName))
-		if err != nil {
-			return "", fmt.Errorf(errMessage, err)
-		}
-
-		_, err = builder.WriteString(":")
-		if err != nil {
-			return "", fmt.Errorf(errMessage, err)
-		}
-
-		_, err = builder.WriteString(url.QueryEscape(settings.Password))
-		if err != nil {
-			return "", fmt.Errorf(errMessage, err)
-		}
-
-		_, err = builder.WriteString("@")
-		if err != nil {
-			return "", fmt.Errorf(errMessage, err)
-		}
-	}
-
-	_, err = builder.WriteString(url.QueryEscape(settings.Host))
-	if err != nil {
-		return "", fmt.Errorf(errMessage, err)
-	}
-
-	_, err = builder.WriteString(":")
-	if err != nil {
-		return "", fmt.Errorf(errMessage, err)
-	}
-
-	_, err = builder.WriteString(strconv.Itoa(settings.Port))
-	if err != nil {
-		return "", fmt.Errorf(errMessage, err)
-	}
-
-	_, err = builder.WriteString("/")
-	if err != nil {
-		return "", fmt.Errorf(errMessage, err)
-	}
-
-	return builder.String(), nil
-}
-
-func watchConnectionNotifications(conn *amqp.Connection, name string, initWG *sync.WaitGroup, closeWG *sync.WaitGroup) {
-	closeChan := conn.NotifyClose(make(chan *amqp.Error))
-	blockChan := conn.NotifyBlocked(make(chan amqp.Blocking))
-
-	initWG.Done()
-
+func watchConnectionNotifications(conn *amqp.Connection, name string, closeWG *sync.WaitGroup) {
 	for {
 		select {
-		case err := <-closeChan:
-			if err != nil {
-				//nolint: godox // follow-up task
-				// TODO: reconnect logic
-				slog.Debug("connection unexpectedly closed", "type", name, "cause", err)
-			}
-
+		case err := <-conn.NotifyClose(make(chan *amqp.Error)):
 			if err == nil {
 				slog.Debug("closed connection", "type", name)
 
@@ -246,28 +171,20 @@ func watchConnectionNotifications(conn *amqp.Connection, name string, initWG *sy
 				return
 			}
 
-		case block := <-blockChan:
+			//nolint: godox // follow-up task
+			// TODO: reconnect logic
+			slog.Debug("connection unexpectedly closed", "type", name, "cause", err)
+
+		case block := <-conn.NotifyBlocked(make(chan amqp.Blocking)):
 			slog.Warn("connection exception", "type", name, "cause", block.Reason)
 		}
 	}
 }
 
-func watchChannelNotifications(channel *amqp.Channel, name string, returnHandler ReturnHandler, initWG *sync.WaitGroup, closeWG *sync.WaitGroup) {
-	closeChan := channel.NotifyClose(make(chan *amqp.Error))
-	cancelChan := channel.NotifyCancel(make(chan string))
-	returnChan := channel.NotifyReturn(make(chan amqp.Return))
-
-	initWG.Done()
-
+func watchChannelNotifications(channel *amqp.Channel, name string, returnHandler ReturnHandler, closeWG *sync.WaitGroup) {
 	for {
 		select {
-		case err := <-closeChan:
-			if err != nil {
-				//nolint: godox // follow-up task
-				// TODO: reconnect logic
-				slog.Debug("channel unexpectedly closed", "type", name, "cause", err)
-			}
-
+		case err := <-channel.NotifyClose(make(chan *amqp.Error)):
 			if err == nil {
 				slog.Debug("closed channel", "type", name)
 
@@ -276,10 +193,14 @@ func watchChannelNotifications(channel *amqp.Channel, name string, returnHandler
 				return
 			}
 
-		case tag := <-cancelChan:
+			//nolint: godox // follow-up task
+			// TODO: reconnect logic
+			slog.Debug("channel unexpectedly closed", "type", name, "cause", err)
+
+		case tag := <-channel.NotifyCancel(make(chan string)):
 			slog.Warn("cancel exception", "type", name, "cause", tag)
 
-		case rtrn := <-returnChan:
+		case rtrn := <-channel.NotifyReturn(make(chan amqp.Return)):
 			if returnHandler != nil {
 				returnHandler(Return(rtrn))
 

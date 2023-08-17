@@ -14,7 +14,7 @@ const (
 )
 
 type (
-	consumeOption func(*ConsumeOptions)
+	ConsumeOption func(*ConsumeOptions)
 
 	// ConsumeOptions are used to describe how a new consumer will be configured.
 	ConsumeOptions struct {
@@ -67,7 +67,7 @@ func newDefaultConsumerName() string {
 // WithCustomConsumeOptions sets the consumer options.
 //
 // It can be used to set all consumer options at once.
-func WithCustomConsumeOptions(options *ConsumeOptions) consumeOption { //nolint:revive // no need for exported return type
+func WithCustomConsumeOptions(options *ConsumeOptions) ConsumeOption {
 	return func(opt *ConsumeOptions) {
 		if options != nil {
 			opt.HandlerQuantity = options.HandlerQuantity
@@ -102,35 +102,35 @@ func WithCustomConsumeOptions(options *ConsumeOptions) consumeOption { //nolint:
 // WithQueueOptionDurable sets whether the queue is a durable queue.
 //
 // Default: false.
-func WithQueueOptionDurable(durable bool) consumeOption { //nolint:revive // no need for exported return type
+func WithQueueOptionDurable(durable bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.QueueOptions.Durable = durable }
 }
 
 // WithQueueOptionAutoDelete sets whether the queue is an auto-delete queue.
 //
 // Default: false.
-func WithQueueOptionAutoDelete(autoDelete bool) consumeOption { //nolint:revive // no need for exported return type
+func WithQueueOptionAutoDelete(autoDelete bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.QueueOptions.AutoDelete = autoDelete }
 }
 
 // WithQueueOptionExclusive sets whether the queue is an exclusive queue.
 //
 // Default: false.
-func WithQueueOptionExclusive(exclusive bool) consumeOption { //nolint:revive // no need for exported return type
+func WithQueueOptionExclusive(exclusive bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.QueueOptions.Exclusive = exclusive }
 }
 
 // WithQueueOptionNoWait sets whether the queue is a no-wait queue.
 //
 // Default: false.
-func WithQueueOptionNoWait(noWait bool) consumeOption { //nolint:revive // no need for exported return type
+func WithQueueOptionNoWait(noWait bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.QueueOptions.NoWait = noWait }
 }
 
 // WithQueueOptionPassive sets whether the queue is a passive queue.
 //
 // Default: false.
-func WithQueueOptionPassive(passive bool) consumeOption { //nolint:revive // no need for exported return type
+func WithQueueOptionPassive(passive bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.QueueOptions.Passive = passive }
 }
 
@@ -138,13 +138,13 @@ func WithQueueOptionPassive(passive bool) consumeOption { //nolint:revive // no 
 // if it doesn't already exist.
 //
 // Default: true.
-func WithQueueOptionDeclare(declare bool) consumeOption { //nolint:revive // no need for exported return type
+func WithQueueOptionDeclare(declare bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.QueueOptions.Declare = declare }
 }
 
 // WithQueueOptionPriority if set a priority queue will be declared with the
 // given maximum priority.
-func WithQueueOptionPriority(maxPriority Priority) consumeOption { //nolint:revive // no need for exported return type
+func WithQueueOptionPriority(maxPriority Priority) ConsumeOption {
 	return func(options *ConsumeOptions) {
 		if options.QueueOptions.Args != nil {
 			options.QueueOptions.Args[maxPriorityKey] = uint8(maxPriority)
@@ -153,7 +153,7 @@ func WithQueueOptionPriority(maxPriority Priority) consumeOption { //nolint:revi
 }
 
 // WithQueueOptionArgs adds optional args to the queue.
-func WithQueueOptionArgs(args Table) consumeOption { //nolint:revive // no need for exported return type
+func WithQueueOptionArgs(args Table) ConsumeOption {
 	return func(options *ConsumeOptions) {
 		if options.QueueOptions.Args != nil {
 			options.QueueOptions.Args = args
@@ -162,40 +162,40 @@ func WithQueueOptionArgs(args Table) consumeOption { //nolint:revive // no need 
 }
 
 // WithExchangeOptionName sets the exchange name.
-func WithExchangeOptionName(name string) consumeOption { //nolint:revive // no need for exported return type
+func WithExchangeOptionName(name string) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ExchangeOptions.Name = name }
 }
 
 // WithExchangeOptionKind ensures the queue is a durable queue.
-func WithExchangeOptionKind(kind string) consumeOption { //nolint:revive // no need for exported return type
+func WithExchangeOptionKind(kind string) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ExchangeOptions.Kind = kind }
 }
 
 // WithExchangeOptionDurable sets whether the exchange is a durable exchange.
 //
 // Default: false.
-func WithExchangeOptionDurable(durable bool) consumeOption { //nolint:revive // no need for exported return type
+func WithExchangeOptionDurable(durable bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ExchangeOptions.Durable = durable }
 }
 
 // WithExchangeOptionAutoDelete sets whether the exchange is an auto-delete exchange.
 //
 // Default: false.
-func WithExchangeOptionAutoDelete(autoDelete bool) consumeOption { //nolint:revive // no need for exported return type
+func WithExchangeOptionAutoDelete(autoDelete bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ExchangeOptions.AutoDelete = autoDelete }
 }
 
 // WithExchangeOptionInternal sets whether the exchange is an internal exchange.
 //
 // Default: false.
-func WithExchangeOptionInternal(internal bool) consumeOption { //nolint:revive // no need for exported return type
+func WithExchangeOptionInternal(internal bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ExchangeOptions.Internal = internal }
 }
 
 // WithExchangeOptionNoWait sets whether the exchange is a no-wait exchange.
 //
 // Default: false.
-func WithExchangeOptionNoWait(noWait bool) consumeOption { //nolint:revive // no need for exported return type
+func WithExchangeOptionNoWait(noWait bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ExchangeOptions.NoWait = noWait }
 }
 
@@ -203,19 +203,19 @@ func WithExchangeOptionNoWait(noWait bool) consumeOption { //nolint:revive // no
 // if it doesn't already exist.
 //
 // Default: false.
-func WithExchangeOptionDeclare(declare bool) consumeOption { //nolint:revive // no need for exported return type
+func WithExchangeOptionDeclare(declare bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ExchangeOptions.Declare = declare }
 }
 
 // WithExchangeOptionPassive sets whether the exchange is a passive exchange.
 //
 // Default: false.
-func WithExchangeOptionPassive(passive bool) consumeOption { //nolint:revive // no need for exported return type
+func WithExchangeOptionPassive(passive bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ExchangeOptions.Passive = passive }
 }
 
 // WithExchangeOptionArgs adds optional args to the exchange.
-func WithExchangeOptionArgs(args Table) consumeOption { //nolint:revive // no need for exported return type
+func WithExchangeOptionArgs(args Table) ConsumeOption {
 	return func(options *ConsumeOptions) {
 		if options.ExchangeOptions.Args != nil {
 			options.ExchangeOptions.Args = args
@@ -224,7 +224,7 @@ func WithExchangeOptionArgs(args Table) consumeOption { //nolint:revive // no ne
 }
 
 // WithConsumerOptionRoutingKey binds the queue to a routing key with the default binding options.
-func WithConsumerOptionRoutingKey(routingKey string) consumeOption { //nolint:revive // no need for exported return type
+func WithConsumerOptionRoutingKey(routingKey string) ConsumeOption {
 	return func(options *ConsumeOptions) {
 		options.Bindings = append(options.Bindings, Binding{
 			RoutingKey:     routingKey,
@@ -236,14 +236,14 @@ func WithConsumerOptionRoutingKey(routingKey string) consumeOption { //nolint:re
 // WithConsumerOptionBinding adds a new binding to the queue which allows you to set the binding options
 // on a per-binding basis. Keep in mind that everything in the BindingOptions struct will default to
 // the zero value. If you want to declare your bindings for example, be sure to set Declare=true.
-func WithConsumerOptionBinding(binding Binding) consumeOption { //nolint:revive // no need for exported return type
+func WithConsumerOptionBinding(binding Binding) ConsumeOption {
 	return func(options *ConsumeOptions) {
 		options.Bindings = append(options.Bindings, binding)
 	}
 }
 
 // WithConsumerOptionHandlerQuantity sets the number of message handlers, that will run concurrently.
-func WithConsumerOptionHandlerQuantity(concurrency int) consumeOption { //nolint:revive // no need for exported return type
+func WithConsumerOptionHandlerQuantity(concurrency int) ConsumeOption {
 	return func(options *ConsumeOptions) {
 		options.HandlerQuantity = concurrency
 	}
@@ -252,7 +252,7 @@ func WithConsumerOptionHandlerQuantity(concurrency int) consumeOption { //nolint
 // WithConsumerOptionConsumerName sets the name on the server of this consumer.
 //
 // If unset a random name will be given.
-func WithConsumerOptionConsumerName(consumerName string) consumeOption { //nolint:revive // no need for exported return type
+func WithConsumerOptionConsumerName(consumerName string) ConsumeOption {
 	return func(options *ConsumeOptions) {
 		options.ConsumerOptions.Name = consumerName
 	}
@@ -261,7 +261,7 @@ func WithConsumerOptionConsumerName(consumerName string) consumeOption { //nolin
 // WithConsumerOptionConsumerAutoAck sets the auto acknowledge property on the server of this consumer.
 //
 // Default: false.
-func WithConsumerOptionConsumerAutoAck(autoAck bool) consumeOption { //nolint:revive // no need for exported return type
+func WithConsumerOptionConsumerAutoAck(autoAck bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ConsumerOptions.AutoAck = autoAck }
 }
 
@@ -271,7 +271,7 @@ func WithConsumerOptionConsumerAutoAck(autoAck bool) consumeOption { //nolint:re
 // deliveries across multiple consumers.
 //
 // Default: false.
-func WithConsumerOptionConsumerExclusive(exclusive bool) consumeOption { //nolint:revive // no need for exported return type
+func WithConsumerOptionConsumerExclusive(exclusive bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ConsumerOptions.Exclusive = exclusive }
 }
 
@@ -281,7 +281,7 @@ func WithConsumerOptionConsumerExclusive(exclusive bool) consumeOption { //nolin
 // exception will be raised and the channel will be closed.
 //
 // Default: false.
-func WithConsumerOptionNoWait(noWait bool) consumeOption { //nolint:revive // no need for exported return type
+func WithConsumerOptionNoWait(noWait bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ConsumerOptions.NoWait = noWait }
 }
 

@@ -5,7 +5,7 @@ import (
 )
 
 type (
-	publishOption func(*PublishOptions)
+	PublishOption func(*PublishOptions)
 
 	// PublishOptions are used to control how data is published.
 	PublishOptions struct {
@@ -48,7 +48,6 @@ type (
 func defaultPublishOptions() *PublishOptions {
 	return &PublishOptions{
 		Headers:         make(Table),
-		Timestamp:       time.Now(),
 		Exchange:        "",
 		ContentType:     "",
 		Expiration:      "",
@@ -60,7 +59,7 @@ func defaultPublishOptions() *PublishOptions {
 		UserID:          "",
 		AppID:           "",
 		Mandatory:       false,
-		Priority:        NoPublishingPriority,
+		Priority:        NoPriority,
 		DeliveryMode:    TransientDelivery,
 	}
 }
@@ -68,7 +67,7 @@ func defaultPublishOptions() *PublishOptions {
 // WithCustomPublishOptions sets the publish options.
 //
 // It can be used to set all publisher options at once.
-func WithCustomPublishOptions(options *PublishOptions) publishOption { //nolint:revive // no need for exported return type
+func WithCustomPublishOptions(options *PublishOptions) PublishOption {
 	return func(opt *PublishOptions) {
 		if options != nil {
 			opt.AppID = options.AppID
@@ -94,7 +93,7 @@ func WithCustomPublishOptions(options *PublishOptions) publishOption { //nolint:
 }
 
 // WithPublishOptionExchange sets the exchange to publish to.
-func WithPublishOptionExchange(exchange string) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionExchange(exchange string) PublishOption {
 	return func(options *PublishOptions) { options.Exchange = exchange }
 }
 
@@ -102,12 +101,12 @@ func WithPublishOptionExchange(exchange string) publishOption { //nolint:revive 
 // bound to the routing key a message will be sent back on the returns channel for you to handle.
 //
 // Default: false.
-func WithPublishOptionMandatory(mandatory bool) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionMandatory(mandatory bool) PublishOption {
 	return func(options *PublishOptions) { options.Mandatory = mandatory }
 }
 
 // WithPublishOptionContentType sets the content type, i.e. "application/json".
-func WithPublishOptionContentType(contentType string) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionContentType(contentType string) PublishOption {
 	return func(options *PublishOptions) { options.ContentType = contentType }
 }
 
@@ -115,62 +114,62 @@ func WithPublishOptionContentType(contentType string) publishOption { //nolint:r
 // not be restored to durable queues, persistent messages will be restored to
 // durable queues and lost on non-durable queues during server restart. By default publishings
 // are transient.
-func WithPublishOptionPersistentDelivery(deliveryMode DeliveryMode) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionPersistentDelivery(deliveryMode DeliveryMode) PublishOption {
 	return func(options *PublishOptions) { options.DeliveryMode = deliveryMode }
 }
 
 // WithPublishOptionExpiration sets the expiry/TTL of a message. As per RabbitMq spec, it must be a.
 // string value in milliseconds.
-func WithPublishOptionExpiration(expiration string) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionExpiration(expiration string) PublishOption {
 	return func(options *PublishOptions) { options.Expiration = expiration }
 }
 
 // WithPublishOptionHeaders sets message header values, i.e. "msg-id".
-func WithPublishOptionHeaders(headers Table) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionHeaders(headers Table) PublishOption {
 	return func(options *PublishOptions) { options.Headers = headers }
 }
 
 // WithPublishOptionContentEncoding sets the content encoding, i.e. "utf-8".
-func WithPublishOptionContentEncoding(contentEncoding string) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionContentEncoding(contentEncoding string) PublishOption {
 	return func(options *PublishOptions) { options.ContentEncoding = contentEncoding }
 }
 
 // WithPublishOptionPriority sets the content priority from 0 to 9.
-func WithPublishOptionPriority(priority Priority) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionPriority(priority Priority) PublishOption {
 	return func(options *PublishOptions) { options.Priority = priority }
 }
 
 // WithPublishOptionTracing sets the content correlation identifier.
-func WithPublishOptionTracing(correlationID string) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionTracing(correlationID string) PublishOption {
 	return func(options *PublishOptions) { options.CorrelationID = correlationID }
 }
 
 // WithPublishOptionReplyTo sets the reply to field.
-func WithPublishOptionReplyTo(replyTo string) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionReplyTo(replyTo string) PublishOption {
 	return func(options *PublishOptions) { options.ReplyTo = replyTo }
 }
 
 // WithPublishOptionMessageID sets the message identifier.
-func WithPublishOptionMessageID(messageID string) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionMessageID(messageID string) PublishOption {
 	return func(options *PublishOptions) { options.MessageID = messageID }
 }
 
 // WithPublishOptionTimestamp sets the timestamp for the message.
-func WithPublishOptionTimestamp(timestamp time.Time) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionTimestamp(timestamp time.Time) PublishOption {
 	return func(options *PublishOptions) { options.Timestamp = timestamp }
 }
 
 // WithPublishOptionType sets the message type name.
-func WithPublishOptionType(messageType string) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionType(messageType string) PublishOption {
 	return func(options *PublishOptions) { options.Type = messageType }
 }
 
 // WithPublishOptionUserID sets the user id e.g. "user".
-func WithPublishOptionUserID(userID string) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionUserID(userID string) PublishOption {
 	return func(options *PublishOptions) { options.UserID = userID }
 }
 
 // WithPublishOptionAppID sets the application id.
-func WithPublishOptionAppID(appID string) publishOption { //nolint:revive // no need for exported return type
+func WithPublishOptionAppID(appID string) PublishOption {
 	return func(options *PublishOptions) { options.AppID = appID }
 }

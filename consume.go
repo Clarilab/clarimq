@@ -33,7 +33,7 @@ type (
 )
 
 // NewConsumer creates a new Consumer instance. Options can be passed to customize the behavior of the Consumer.
-func (c *Connector) NewConsumer(queueName string, options ...consumeOption) (*Consumer, error) {
+func (c *Connector) NewConsumer(queueName string, options ...ConsumeOption) (*Consumer, error) {
 	const errMessage = "failed to create consumer: %w"
 
 	opt := defaultConsumerOptions()
@@ -67,7 +67,7 @@ func (c *Connector) NewConsumer(queueName string, options ...consumeOption) (*Co
 // NewConsumer creates a new Consumer instance which immediately starts subscribing to the given queue.
 //
 // Options can be passed to customize the behavior of the Consumer.
-func (c *Connector) NewConsumerAndSubscribe(queueName string, handler HandlerFunc, options ...consumeOption) (*Consumer, error) {
+func (c *Connector) NewConsumerAndSubscribe(queueName string, handler HandlerFunc, options ...ConsumeOption) (*Consumer, error) {
 	const errMessage = "failed to create consumer and subscribe: %w"
 
 	consumer, err := c.NewConsumer(queueName, options...)

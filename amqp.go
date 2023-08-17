@@ -5,7 +5,9 @@ import (
 )
 
 const (
+	// TransientDelivery indicates that the messsage should be published as transient message.
 	TransientDelivery DeliveryMode = iota + 1
+	// PersistentDelivery indicates that the messsage should be published as persistent message.
 	PersistentDelivery
 )
 
@@ -21,24 +23,35 @@ const (
 )
 
 const (
-	NoPublishingPriority Priority = iota
-	LowestPublishingPriority
-	LowPublishingPriority
-	MediumPublishingPriority
-	HighPublishingPriority
-	HighestPublishingPriority
+	// NoPriority indicates that the message should be published with no priority.
+	NoPriority Priority = iota
+	// LowestPriority indicates that the message should be published with lowest priority.
+	LowestPriority
+	// LowPriority indicates that the message should be published with low priority.
+	LowPriority
+	// NormalPriority indicates that the message should be published with normal priority.
+	MediumPriority
+	// HighPriority indicates that the message should be published with high priority.
+	HighPriority
+	// HighestPriority indicates that the message should be published with highest priority.
+	HighestPriority
 )
 
 const (
+	// Constant for RabbitMQ's default exchange (direct exchange).
 	ExchangeDefault string = amqp.DefaultExchange
-	ExchangeDirect  string = amqp.ExchangeDirect
-	ExchangeFanout  string = amqp.ExchangeFanout
-	ExchangeTopic   string = amqp.ExchangeTopic
+	// Constant for standard AMQP 0-9-1 direct exchange type.
+	ExchangeDirect string = amqp.ExchangeDirect
+	// Constant for standard AMQP 0-9-1 fanout exchange type.
+	ExchangeFanout string = amqp.ExchangeFanout
+	// Constant for standard AMQP 0-9-1 topic exchange type.
+	ExchangeTopic string = amqp.ExchangeTopic
+	// Constant for standard AMQP 0-9-1 headers exchange type.
 	ExchangeHeaders string = amqp.ExchangeHeaders
 )
 
 type (
-	// The delivery mode of a message can be either transient ord persistent.
+	// The delivery mode of a message can be either transient or persistent.
 	DeliveryMode uint8
 
 	// Priority of a message can be either no priority, lowest, low, medium, high or highest.
