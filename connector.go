@@ -125,14 +125,14 @@ func connect(params *connectParams) (*amqp.Connection, *amqp.Channel, error) {
 			return nil, nil, fmt.Errorf(errMessage, err)
 		}
 
-		go watchConnectionNotifications(conn, publish, params.closeWG, params.logger)
+		watchConnectionNotifications(conn, publish, params.closeWG, params.logger)
 
 		channel, err = createChannel(conn, params.opt.PrefetchCount)
 		if err != nil {
 			return nil, nil, fmt.Errorf(errMessage, err)
 		}
 
-		go watchChannelNotifications(channel, publish, params.opt.ReturnHandler, params.closeWG, params.logger)
+		watchChannelNotifications(channel, publish, params.opt.ReturnHandler, params.closeWG, params.logger)
 	}
 
 	return conn, channel, nil
@@ -157,62 +157,73 @@ func createChannel(conn *amqp.Connection, prefetchCount int) (*amqp.Channel, err
 }
 
 func watchConnectionNotifications(conn *amqp.Connection, name string, closeWG *sync.WaitGroup, logger *log) {
-	for {
-		select {
-		case err := <-conn.NotifyClose(make(chan *amqp.Error)):
-			if err == nil {
-				slog.Debug("closed connection", "type", name)
+	closeChan := conn.NotifyClose(make(chan *amqp.Error))
+	blockChan := conn.NotifyBlocked(make(chan amqp.Blocking))
 
-				closeWG.Done()
+	go func() {
+		for {
+			select {
+			case err := <-closeChan:
+				if err == nil {
+					slog.Debug("closed connection", "type", name)
 
-				return
+					closeWG.Done()
+
+					return
+				}
+
+				//nolint: godox // follow-up task
+				// TODO: reconnect logic
+				logger.logDebug("connection unexpectedly closed", "type", name, "cause", err)
+
+			case block := <-blockChan:
+				logger.logWarn("connection exception", "type", name, "cause", block.Reason)
 			}
-
-			//nolint: godox // follow-up task
-			// TODO: reconnect logic
-			logger.logDebug("connection unexpectedly closed", "type", name, "cause", err)
-
-		case block := <-conn.NotifyBlocked(make(chan amqp.Blocking)):
-			logger.logWarn("connection exception", "type", name, "cause", block.Reason)
 		}
-	}
+	}()
 }
 
 func watchChannelNotifications(channel *amqp.Channel, name string, returnHandler ReturnHandler, closeWG *sync.WaitGroup, logger *log) {
-	for {
-		select {
-		case err := <-channel.NotifyClose(make(chan *amqp.Error)):
-			if err == nil {
-				slog.Debug("closed channel", "type", name)
+	closeChan := channel.NotifyClose(make(chan *amqp.Error))
+	cancelChan := channel.NotifyCancel(make(chan string))
+	returnChan := channel.NotifyReturn(make(chan amqp.Return))
 
-				closeWG.Done()
+	go func() {
+		for {
+			select {
+			case err := <-closeChan:
+				if err == nil {
+					slog.Debug("closed channel", "type", name)
 
-				return
+					closeWG.Done()
+
+					return
+				}
+
+				//nolint: godox // follow-up task
+				// TODO: reconnect logic
+				logger.logDebug("channel unexpectedly closed", "type", name, "cause", err)
+
+			case tag := <-cancelChan:
+				logger.logWarn("cancel exception", "type", name, "cause", tag)
+
+			case rtrn := <-returnChan:
+				if returnHandler != nil {
+					returnHandler(Return(rtrn))
+
+					continue
+				}
+
+				logger.logWarn(
+					"message could not be published",
+					"replyCode", rtrn.ReplyCode,
+					"replyText", rtrn.ReplyText,
+					"messageId", rtrn.MessageId,
+					"correlationId", rtrn.CorrelationId,
+					"exchange", rtrn.Exchange,
+					"routingKey", rtrn.RoutingKey,
+				)
 			}
-
-			//nolint: godox // follow-up task
-			// TODO: reconnect logic
-			logger.logDebug("channel unexpectedly closed", "type", name, "cause", err)
-
-		case tag := <-channel.NotifyCancel(make(chan string)):
-			logger.logWarn("cancel exception", "type", name, "cause", tag)
-
-		case rtrn := <-channel.NotifyReturn(make(chan amqp.Return)):
-			if returnHandler != nil {
-				returnHandler(Return(rtrn))
-
-				continue
-			}
-
-			logger.logWarn(
-				"message could not be published",
-				"replyCode", rtrn.ReplyCode,
-				"replyText", rtrn.ReplyText,
-				"messageId", rtrn.MessageId,
-				"correlationId", rtrn.CorrelationId,
-				"exchange", rtrn.Exchange,
-				"routingKey", rtrn.RoutingKey,
-			)
 		}
-	}
+	}()
 }
