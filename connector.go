@@ -63,14 +63,12 @@ func NewConnector(settings *ConnectionSettings, options ...ConnectorOption) *Con
 func (c *Connector) Close() error {
 	const errMessage = "failed to close connections to rabbitmq gracefully: %w"
 
-	var err error
-
 	if c.publishConn != nil {
 		c.log.logDebug("closing connection", "type", publish)
 
 		c.publishCloseWG.Add(closeWGDelta)
 
-		if err = c.publishConn.Close(); err != nil {
+		if err := c.publishConn.Close(); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
@@ -82,7 +80,7 @@ func (c *Connector) Close() error {
 
 		c.consumeCloseWG.Add(closeWGDelta)
 
-		if err = c.consumeConn.Close(); err != nil {
+		if err := c.consumeConn.Close(); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
