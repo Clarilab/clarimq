@@ -2,8 +2,8 @@ package gorabbitmq
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
-	"os"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -25,7 +25,7 @@ type (
 	// ConnectorOptions are used to describe how a new connector will be created.
 	ConnectorOptions struct {
 		ReturnHandler
-		LogHandler        slog.Handler
+		logger            []*slog.Logger
 		Config            *Config
 		Codec             *codec
 		uri               string
@@ -52,9 +52,6 @@ func defaultConnectorOptions(uri string) *ConnectorOptions {
 	return &ConnectorOptions{
 		uri:               uri,
 		ReconnectInterval: defaultReconnectInterval,
-		LogHandler: slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}),
 		Config: &Config{
 			Properties: make(amqp.Table),
 		},
@@ -91,17 +88,37 @@ func WithConnectorOptionConnectionName(name string) ConnectorOption {
 	return func(options *ConnectorOptions) { options.Config.Properties.SetClientConnectionName(name) }
 }
 
-// WithConnectorOptionLogHandler sets the logger handler.
-//
-// The default logger handler is a slog.TextHandler with log level set to INFO level,
-// writing to Sdtout.
-func WithConnectorOptionLogHandler(handler slog.Handler) ConnectorOption {
-	return func(o *ConnectorOptions) { o.LogHandler = handler }
+// WithConnectorOptionTextLogging enables structured text logging to the given writer.
+func WithConnectorOptionTextLogging(w io.Writer, logLevel slog.Level) ConnectorOption {
+	return func(o *ConnectorOptions) {
+		o.logger = append(o.logger,
+			slog.New(slog.NewTextHandler(
+				w,
+				&slog.HandlerOptions{
+					Level: logLevel,
+				},
+			)),
+		)
+	}
+}
+
+// WithConnectorOptionJSONLogging enables structured json logging to the given writer.
+func WithConnectorOptionJSONLogging(w io.Writer, logLevel slog.Level) ConnectorOption {
+	return func(o *ConnectorOptions) {
+		o.logger = append(o.logger,
+			slog.New(slog.NewJSONHandler(
+				w,
+				&slog.HandlerOptions{
+					Level: logLevel,
+				},
+			)),
+		)
+	}
 }
 
 // WithConnectorOptionAMQPConfig sets the amqp.Config that will be used to create the connection.
 //
-// Warning: this will override any values set in the ConnectionOptions.
+// Warning: this will override any values set in the connection config.
 func WithConnectorOptionAMQPConfig(config *Config) ConnectorOption {
 	return func(o *ConnectorOptions) { o.Config = config }
 }

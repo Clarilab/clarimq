@@ -3,13 +3,8 @@ package gorabbitmq
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-)
-
-const (
-	consumeType string = "consume"
 )
 
 type (
@@ -47,11 +42,12 @@ func (c *Connector) NewConsumer(queueName string, options ...ConsumeOption) (*Co
 	var err error
 
 	c.consumeConn, c.consumeChannel, err = connect(&connectParams{
-		instanceType: consumeType,
+		instanceType: consume,
 		conn:         c.consumeConn,
 		channel:      c.consumeChannel,
 		opt:          c.options,
 		closeWG:      c.consumeCloseWG,
+		logger:       c.log,
 	})
 	if err != nil {
 		return nil, fmt.Errorf(errMessage, err)
@@ -205,7 +201,7 @@ func (c *Consumer) startConsuming(handler HandlerFunc) error {
 
 	c.subscribed = true
 
-	slog.Debug(fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
+	c.connector.log.logDebug(fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
 
 	return nil
 }
@@ -226,19 +222,19 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery, consumeOption
 		case Ack:
 			err := msg.Ack(false)
 			if err != nil {
-				slog.Error("could not ack message: %v", err)
+				c.connector.log.logError("could not ack message: %v", err)
 			}
 
 		case NackDiscard:
 			err := msg.Nack(false, false)
 			if err != nil {
-				slog.Error("could not nack message: %v", err)
+				c.connector.log.logError("could not nack message: %v", err)
 			}
 
 		case NackRequeue:
 			err := msg.Nack(false, true)
 			if err != nil {
-				slog.Error("could not nack message: %v", err)
+				c.connector.log.logError("could not nack message: %v", err)
 			}
 
 		case Manual:

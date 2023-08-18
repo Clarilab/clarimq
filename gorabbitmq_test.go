@@ -701,13 +701,7 @@ func Test_Integration_CustomOptions(t *testing.T) {
 
 				return getConnector(gorabbitmq.WithCustomConnectorOptions(
 					&gorabbitmq.ConnectorOptions{
-						ReturnHandler: nil,
-						LogHandler: slog.NewTextHandler(
-							os.Stdout,
-							&slog.HandlerOptions{
-								Level: slog.LevelError,
-							},
-						),
+						ReturnHandler:     nil,
 						Config:            &amqpConfig,
 						Codec:             nil,
 						PrefetchCount:     0,
@@ -957,14 +951,8 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 
 	connector := getConnector(
 		gorabbitmq.WithConnectorOptionReturnHandler(returnHandler),
-		gorabbitmq.WithConnectorOptionLogHandler(
-			slog.NewTextHandler(
-				os.Stdout,
-				&slog.HandlerOptions{
-					Level: slog.LevelError,
-				},
-			),
-		),
+		gorabbitmq.WithConnectorOptionTextLogging(os.Stdout, slog.LevelError),
+		gorabbitmq.WithConnectorOptionConnectionName(stringGen()),
 	)
 
 	t.Cleanup(func() {

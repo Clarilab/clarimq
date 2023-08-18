@@ -21,6 +21,7 @@ const (
 // Connector manages the connection to a RabbitMQ cluster.
 type Connector struct {
 	options *ConnectorOptions
+	log     *log
 
 	publishConn    *amqp.Connection
 	publishChannel *amqp.Channel
@@ -50,14 +51,11 @@ func NewConnector(settings *ConnectionSettings, options ...ConnectorOption) *Con
 		options[i](opt)
 	}
 
-	logger := slog.New(opt.LogHandler)
-
-	slog.SetDefault(logger)
-
 	return &Connector{
 		options:        opt,
 		publishCloseWG: &sync.WaitGroup{},
 		consumeCloseWG: &sync.WaitGroup{},
+		log:            newLogger(opt.logger),
 	}
 }
 
@@ -68,7 +66,7 @@ func (c *Connector) Close() error {
 	var err error
 
 	if c.publishConn != nil {
-		slog.Debug("closing connection", "type", publishType)
+		c.log.logDebug("closing connection", "type", publish)
 
 		c.publishCloseWG.Add(closeWGDelta)
 
@@ -80,7 +78,7 @@ func (c *Connector) Close() error {
 	}
 
 	if c.consumeConn != nil {
-		slog.Debug("closing connection", "type", consumeType)
+		c.log.logDebug("closing connection", "type", consume)
 
 		c.consumeCloseWG.Add(closeWGDelta)
 
@@ -91,7 +89,7 @@ func (c *Connector) Close() error {
 		c.consumeCloseWG.Wait()
 	}
 
-	slog.Info("gracefully closed connections to rabbitmq")
+	c.log.logInfo("gracefully closed connections to rabbitmq")
 
 	return nil
 }
@@ -112,6 +110,7 @@ type connectParams struct {
 	channel      *amqp.Channel
 	opt          *ConnectorOptions
 	closeWG      *sync.WaitGroup
+	logger       *log
 	instanceType string
 }
 
@@ -128,14 +127,14 @@ func connect(params *connectParams) (*amqp.Connection, *amqp.Channel, error) {
 			return nil, nil, fmt.Errorf(errMessage, err)
 		}
 
-		go watchConnectionNotifications(conn, publish, params.closeWG)
+		go watchConnectionNotifications(conn, publish, params.closeWG, params.logger)
 
 		channel, err = createChannel(conn, params.opt.PrefetchCount)
 		if err != nil {
 			return nil, nil, fmt.Errorf(errMessage, err)
 		}
 
-		go watchChannelNotifications(channel, publish, params.opt.ReturnHandler, params.closeWG)
+		go watchChannelNotifications(channel, publish, params.opt.ReturnHandler, params.closeWG, params.logger)
 	}
 
 	return conn, channel, nil
@@ -159,7 +158,7 @@ func createChannel(conn *amqp.Connection, prefetchCount int) (*amqp.Channel, err
 	return channel, nil
 }
 
-func watchConnectionNotifications(conn *amqp.Connection, name string, closeWG *sync.WaitGroup) {
+func watchConnectionNotifications(conn *amqp.Connection, name string, closeWG *sync.WaitGroup, logger *log) {
 	for {
 		select {
 		case err := <-conn.NotifyClose(make(chan *amqp.Error)):
@@ -173,15 +172,15 @@ func watchConnectionNotifications(conn *amqp.Connection, name string, closeWG *s
 
 			//nolint: godox // follow-up task
 			// TODO: reconnect logic
-			slog.Debug("connection unexpectedly closed", "type", name, "cause", err)
+			logger.logDebug("connection unexpectedly closed", "type", name, "cause", err)
 
 		case block := <-conn.NotifyBlocked(make(chan amqp.Blocking)):
-			slog.Warn("connection exception", "type", name, "cause", block.Reason)
+			logger.logWarn("connection exception", "type", name, "cause", block.Reason)
 		}
 	}
 }
 
-func watchChannelNotifications(channel *amqp.Channel, name string, returnHandler ReturnHandler, closeWG *sync.WaitGroup) {
+func watchChannelNotifications(channel *amqp.Channel, name string, returnHandler ReturnHandler, closeWG *sync.WaitGroup, logger *log) {
 	for {
 		select {
 		case err := <-channel.NotifyClose(make(chan *amqp.Error)):
@@ -195,10 +194,10 @@ func watchChannelNotifications(channel *amqp.Channel, name string, returnHandler
 
 			//nolint: godox // follow-up task
 			// TODO: reconnect logic
-			slog.Debug("channel unexpectedly closed", "type", name, "cause", err)
+			logger.logDebug("channel unexpectedly closed", "type", name, "cause", err)
 
 		case tag := <-channel.NotifyCancel(make(chan string)):
-			slog.Warn("cancel exception", "type", name, "cause", tag)
+			logger.logWarn("cancel exception", "type", name, "cause", tag)
 
 		case rtrn := <-channel.NotifyReturn(make(chan amqp.Return)):
 			if returnHandler != nil {
@@ -207,7 +206,7 @@ func watchChannelNotifications(channel *amqp.Channel, name string, returnHandler
 				continue
 			}
 
-			slog.Warn(
+			logger.logWarn(
 				"message could not be published",
 				"replyCode", rtrn.ReplyCode,
 				"replyText", rtrn.ReplyText,

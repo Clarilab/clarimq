@@ -9,7 +9,6 @@ import (
 )
 
 const (
-	publishType       string = "publish"
 	jsonContentType   string = "application/json"
 	stringContentType string = "text/plain"
 	bytesContentType  string = "application/octet-stream"
@@ -34,11 +33,12 @@ func (c *Connector) NewPublisher(options ...PublishOption) (*Publisher, error) {
 	var err error
 
 	c.publishConn, c.publishChannel, err = connect(&connectParams{
-		instanceType: publishType,
+		instanceType: publish,
 		conn:         c.publishConn,
 		channel:      c.publishChannel,
 		opt:          c.options,
 		closeWG:      c.publishCloseWG,
+		logger:       c.log,
 	})
 	if err != nil {
 		return nil, fmt.Errorf(errMessage, err)
