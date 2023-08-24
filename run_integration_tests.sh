@@ -14,7 +14,7 @@ done
 
 echo "Service $CONTAINER is now available"
 
-go test -run "Test_Integration" -vet=off -failfast -race -coverprofile=coverage.out
+go test -run "$1" -vet=off -failfast -race -coverprofile=coverage.out
 go_test_exit_code=$?
 
 docker-compose down

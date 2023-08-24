@@ -12,7 +12,10 @@ vuln:
 test_all: test test_integration
 
 test:
-	go test -skip "Test_Integration" -vet=off -failfast -race -coverprofile=coverage.out
+	go test -skip "(Test_Integration|Test_Reconnection)" -vet=off -failfast -race -coverprofile=coverage.out
 
 test_integration:
-	./run_integration_tests.sh
+	./run_integration_tests.sh Test_Integration
+
+test_reconnection:
+	./run_integration_tests.sh Test_Reconnection

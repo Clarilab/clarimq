@@ -1,8 +1,8 @@
 package gorabbitmq
 
 import (
-	"errors"
 	"fmt"
+	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -11,9 +11,11 @@ type (
 
 	// Consumer is a consumer for AMQP messages.
 	Consumer struct {
-		connector  *Connector
-		options    *ConsumeOptions
-		subscribed bool
+		channel     *amqp.Channel
+		options     *ConsumeOptions
+		handler     HandlerFunc
+		logger      *log
+		unsubscribe chan string
 	}
 
 	// Delivery captures the fields for a previously delivered message resident in
@@ -28,7 +30,7 @@ type (
 )
 
 // NewConsumer creates a new Consumer instance. Options can be passed to customize the behavior of the Consumer.
-func (c *Connector) NewConsumer(queueName string, options ...ConsumeOption) (*Consumer, error) {
+func (c *Connector) newConsumer(queueName string, options ...ConsumeOption) (*Consumer, error) {
 	const errMessage = "failed to create consumer: %w"
 
 	opt := defaultConsumerOptions()
@@ -39,67 +41,74 @@ func (c *Connector) NewConsumer(queueName string, options ...ConsumeOption) (*Co
 
 	opt.QueueOptions.name = queueName
 
-	var err error
+	unsubscribeChan := make(chan string)
 
-	c.consumeConn, c.consumeChannel, err = connect(&connectParams{
-		instanceType: consume,
-		conn:         c.consumeConn,
-		channel:      c.consumeChannel,
-		opt:          c.options,
-		closeWG:      c.consumeCloseWG,
-		logger:       c.log,
-	})
+	if c.consumeConnection == nil {
+		c.consumeConnection = &connection{
+			amqpConnectionMtx:    &sync.Mutex{},
+			amqpChannelMtx:       &sync.Mutex{},
+			connectionCloseWG:    &sync.WaitGroup{},
+			consumersMtx:         &sync.Mutex{},
+			consumers:            make(map[string]*Consumer),
+			consumerCloseChan:    unsubscribeChan,
+			reconnectFailChanMtx: &sync.Mutex{},
+			reconnectFailChan:    make(chan error, reconnectFailChanSize),
+		}
+	}
+
+	err := connect(c.consumeConnection, c.options, c.log, consume)
 	if err != nil {
 		return nil, fmt.Errorf(errMessage, err)
 	}
 
 	return &Consumer{
-		connector:  c,
-		options:    opt,
-		subscribed: false,
+		channel:     c.consumeConnection.amqpChannel,
+		options:     opt,
+		logger:      c.log,
+		unsubscribe: unsubscribeChan,
 	}, nil
 }
 
-// NewConsumer creates a new Consumer instance which immediately starts subscribing to the given queue.
-//
-// Options can be passed to customize the behavior of the Consumer.
-func (c *Connector) NewConsumerAndSubscribe(queueName string, handler HandlerFunc, options ...ConsumeOption) (*Consumer, error) {
-	const errMessage = "failed to create consumer and subscribe: %w"
+func (c *Connector) RegisterConsumer(queueName string, handler HandlerFunc, options ...ConsumeOption) (*Consumer, error) {
+	const errMessage = "failed to register consumer: %w"
 
-	consumer, err := c.NewConsumer(queueName, options...)
+	consumer, err := c.newConsumer(queueName, options...)
 	if err != nil {
 		return nil, fmt.Errorf(errMessage, err)
 	}
 
-	if err = consumer.Subscribe(handler); err != nil {
+	if err = consumer.registerAndStartConsumer(c.consumeConnection, handler); err != nil {
 		return nil, fmt.Errorf(errMessage, err)
 	}
 
 	return consumer, nil
 }
 
-// Subscribe starts consuming messages from the queue with the specified consumer options.
-//
-// The handler function is called for each message to handle the delivery received from the queue.
-func (c *Consumer) Subscribe(handler HandlerFunc) error {
-	const errMessage = "failed to subscribe consumer: %w"
+func (c *Consumer) registerAndStartConsumer(conn *connection, handler HandlerFunc) error {
+	const errMessage = "failed to start consumer: %w"
 
-	if err := c.startConsuming(handler); err != nil {
+	c.handler = handler
+
+	conn.consumersMtx.Lock()
+	conn.consumers[c.options.ConsumerOptions.Name] = c
+	conn.consumersMtx.Unlock()
+
+	if err := c.startConsuming(); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
 	return nil
 }
 
-// Subscribe stops consuming messages from the subscribed queue.
-func (c *Consumer) Unsubscribe() error {
+// Close stops consuming messages from the subscribed queue.
+func (c *Consumer) Close() error {
 	const errMessage = "failed to unsubscribe consumer: %w"
 
-	if err := c.connector.consumeChannel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
+	c.unsubscribe <- c.options.ConsumerOptions.Name
+
+	if err := c.channel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
-
-	c.subscribed = false
 
 	return nil
 }
@@ -115,7 +124,7 @@ func (c *Consumer) Unsubscribe() error {
 func (c *Consumer) RemoveQueue(name string, ifUnused bool, ifEmpty bool, noWait bool) (int, error) {
 	const errMessage = "failed to remove queue: %w"
 
-	removedMessages, err := c.connector.consumeChannel.QueueDelete(name, ifUnused, ifEmpty, noWait)
+	removedMessages, err := c.channel.QueueDelete(name, ifUnused, ifEmpty, noWait)
 	if err != nil {
 		return 0, fmt.Errorf(errMessage, err)
 	}
@@ -129,7 +138,7 @@ func (c *Consumer) RemoveQueue(name string, ifUnused bool, ifEmpty bool, noWait 
 func (c *Consumer) RemoveBinding(queueName string, routingKey string, exchangeName string, args Table) error {
 	const errMessage = "failed to remove binding: %w"
 
-	err := c.connector.consumeChannel.QueueUnbind(queueName, routingKey, exchangeName, amqp.Table(args))
+	err := c.channel.QueueUnbind(queueName, routingKey, exchangeName, amqp.Table(args))
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
@@ -149,7 +158,7 @@ func (c *Consumer) RemoveBinding(queueName string, routingKey string, exchangeNa
 func (c *Consumer) RemoveExchange(name string, ifUnused bool, noWait bool) error {
 	const errMessage = "failed to remove exchange: %w"
 
-	err := c.connector.consumeChannel.ExchangeDelete(name, ifUnused, noWait)
+	err := c.channel.ExchangeDelete(name, ifUnused, noWait)
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
@@ -157,32 +166,25 @@ func (c *Consumer) RemoveExchange(name string, ifUnused bool, noWait bool) error
 	return nil
 }
 
-// ErrAlreadySubscribed occours when the consumer is already subscribed to a queue.
-var ErrAlreadySubscribed = errors.New("consumer already has an active subscription")
-
-func (c *Consumer) startConsuming(handler HandlerFunc) error {
+func (c *Consumer) startConsuming() error {
 	const errMessage = "failed to start consuming: %w"
 
-	if c.subscribed {
-		return fmt.Errorf(errMessage, ErrAlreadySubscribed)
-	}
-
-	err := declareExchange(c.connector.consumeChannel, c.options.ExchangeOptions)
+	err := declareExchange(c.channel, c.options.ExchangeOptions)
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	err = c.connector.declareQueue(c.options.QueueOptions)
+	err = declareQueue(c.channel, c.options.QueueOptions)
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	err = declareBindings(c.connector.consumeChannel, c.options)
+	err = declareBindings(c.channel, c.options)
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	deliveries, err := c.connector.consumeChannel.Consume(
+	deliveries, err := c.channel.Consume(
 		c.options.QueueOptions.name,
 		c.options.ConsumerOptions.Name,
 		c.options.ConsumerOptions.AutoAck,
@@ -196,19 +198,19 @@ func (c *Consumer) startConsuming(handler HandlerFunc) error {
 	}
 
 	for i := 0; i < c.options.HandlerQuantity; i++ {
-		go c.handlerRoutine(deliveries, c.options, handler)
+		go c.handlerRoutine(deliveries, c.options, c.handler)
 	}
 
-	c.subscribed = true
-
-	c.connector.log.logDebug(fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
+	c.logger.logDebug(fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
 
 	return nil
 }
 
 func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery, consumeOptions *ConsumeOptions, handler HandlerFunc) {
 	for msg := range deliveries {
-		if c.connector.consumeChannel.IsClosed() {
+		if c.channel.IsClosed() {
+			c.logger.logDebug("message handler stopped: channel is closed")
+
 			break
 		}
 
@@ -222,19 +224,19 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery, consumeOption
 		case Ack:
 			err := msg.Ack(false)
 			if err != nil {
-				c.connector.log.logError("could not ack message: %v", err)
+				c.logger.logError("could not ack message: %v", err)
 			}
 
 		case NackDiscard:
 			err := msg.Nack(false, false)
 			if err != nil {
-				c.connector.log.logError("could not nack message: %v", err)
+				c.logger.logError("could not nack message: %v", err)
 			}
 
 		case NackRequeue:
 			err := msg.Nack(false, true)
 			if err != nil {
-				c.connector.log.logError("could not nack message: %v", err)
+				c.logger.logError("could not nack message: %v", err)
 			}
 
 		case Manual:

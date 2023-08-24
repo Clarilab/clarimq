@@ -41,7 +41,7 @@ func defaultQueueOptions() *QueueOptions {
 	}
 }
 
-func (c *Connector) declareQueue(options *QueueOptions) error {
+func declareQueue(channel *amqp.Channel, options *QueueOptions) error {
 	const errMessage = "failed to declare queue: %w"
 
 	if !options.Declare {
@@ -51,7 +51,7 @@ func (c *Connector) declareQueue(options *QueueOptions) error {
 	var err error
 
 	if options.Passive {
-		_, err = c.consumeChannel.QueueDeclarePassive(
+		_, err = channel.QueueDeclarePassive(
 			options.name,
 			options.Durable,
 			options.AutoDelete,
@@ -66,7 +66,7 @@ func (c *Connector) declareQueue(options *QueueOptions) error {
 		return nil
 	}
 
-	_, err = c.consumeChannel.QueueDeclare(
+	_, err = channel.QueueDeclare(
 		options.name,
 		options.Durable,
 		options.AutoDelete,

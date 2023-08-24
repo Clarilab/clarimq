@@ -1,14 +1,19 @@
 package gorabbitmq_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -61,7 +66,7 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -88,7 +93,7 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -115,7 +120,7 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -147,7 +152,7 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -183,8 +188,11 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 				routingKey:   stringGen(),
 			}
 
+			// connecting to a passive exchange requires the exchange to exist beforehand
+			// so here the exchange gets declared before the binding is declared.
+
 			if test.passiveExchange {
-				consumer, err := connector.NewConsumerAndSubscribe(
+				consumer, err := connector.RegisterConsumer(
 					testParams.queueName,
 					nil,
 					gorabbitmq.WithExchangeOptionDeclare(true),
@@ -196,7 +204,7 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 
 				requireNoError(t, err)
 
-				err = consumer.Unsubscribe()
+				err = consumer.Close()
 				requireNoError(t, err)
 			}
 
@@ -213,6 +221,7 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 
 			<-doneChan
 
+			// cleaning up the passive exchange again
 			if test.passiveExchange {
 				err = consumer.RemoveExchange(testParams.exchangeName, false, false)
 				requireNoError(t, err)
@@ -244,7 +253,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					queueName,
 					handler,
 					gorabbitmq.WithQueueOptionAutoDelete(true),
@@ -269,7 +278,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					queueName,
 					handler,
 					gorabbitmq.WithQueueOptionAutoDelete(true),
@@ -293,7 +302,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					queueName,
 					handler,
 					gorabbitmq.WithQueueOptionAutoDelete(true),
@@ -317,7 +326,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					queueName,
 					handler,
 					gorabbitmq.WithQueueOptionAutoDelete(true),
@@ -340,7 +349,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					queueName,
 					handler,
 					gorabbitmq.WithQueueOptionAutoDelete(true),
@@ -369,12 +378,15 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 			doneChan := make(chan struct{})
 			queueName := stringGen()
 
+			// connecting to a passive queue requires the queue to exist beforehand
+			// so here the queue gets declared before the consumer subscribes.
+
 			if test.passiveQueue {
-				consumer, err := connector.NewConsumerAndSubscribe(queueName, nil)
+				consumer, err := connector.RegisterConsumer(queueName, nil)
 
 				requireNoError(t, err)
 
-				err = consumer.Unsubscribe()
+				err = consumer.Close()
 				requireNoError(t, err)
 			}
 
@@ -389,6 +401,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 
 			<-doneChan
 
+			// cleaning up the passive queue again
 			if test.passiveQueue {
 				_, err = consumer.RemoveQueue(queueName, false, false, false)
 				requireNoError(t, err)
@@ -418,7 +431,7 @@ func Test_Integration_Consume(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -445,7 +458,7 @@ func Test_Integration_Consume(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -478,7 +491,7 @@ func Test_Integration_Consume(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -505,7 +518,7 @@ func Test_Integration_Consume(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -532,7 +545,7 @@ func Test_Integration_Consume(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -557,7 +570,7 @@ func Test_Integration_Consume(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -582,7 +595,7 @@ func Test_Integration_Consume(t *testing.T) {
 				}
 			},
 			getConsumer: func(c *gorabbitmq.Connector, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					handler,
 					gorabbitmq.WithExchangeOptionAutoDelete(true),
@@ -771,9 +784,11 @@ func Test_Integration_CustomOptions(t *testing.T) {
 
 			wg := &sync.WaitGroup{}
 
+			// adding 2 to wait for both consumers to handle their deliveries.
 			wg.Add(2)
 
-			_, err := test.connector.NewConsumerAndSubscribe(
+			// registering first consumer.
+			_, err := test.connector.RegisterConsumer(
 				targets[0],
 				test.deliveryHandler(message, wg),
 				gorabbitmq.WithQueueOptionAutoDelete(true),
@@ -781,7 +796,8 @@ func Test_Integration_CustomOptions(t *testing.T) {
 			)
 			requireNoError(t, err)
 
-			_, err = test.connector.NewConsumerAndSubscribe(targets[1], test.deliveryHandler(message, wg), gorabbitmq.WithCustomConsumeOptions(
+			// registering second consumer with custom options.
+			_, err = test.connector.RegisterConsumer(targets[1], test.deliveryHandler(message, wg), gorabbitmq.WithCustomConsumeOptions(
 				&gorabbitmq.ConsumeOptions{
 					ConsumerOptions: &gorabbitmq.ConsumerOptions{
 						Args: make(gorabbitmq.Table),
@@ -806,6 +822,7 @@ func Test_Integration_CustomOptions(t *testing.T) {
 			publisher, err := test.getPublisher(test.connector)
 			requireNoError(t, err)
 
+			// publishing to multiple targets
 			err = test.publish(publisher, targets)
 			requireNoError(t, err)
 
@@ -823,7 +840,7 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 	}{
 		"remove queue": {
 			getConsumer: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(params.queueName, nil)
+				return c.RegisterConsumer(params.queueName, nil)
 			},
 			action: func(consumer *gorabbitmq.Consumer, params *testParams) error {
 				removedMessages, err := consumer.RemoveQueue(params.queueName, false, false, false)
@@ -836,7 +853,7 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 		},
 		"remove exchange": {
 			getConsumer: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					nil,
 					gorabbitmq.WithExchangeOptionDeclare(true),
@@ -855,7 +872,7 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 		},
 		"remove binding": {
 			getConsumer: func(c *gorabbitmq.Connector, params *testParams) (*gorabbitmq.Consumer, error) {
-				return c.NewConsumerAndSubscribe(
+				return c.RegisterConsumer(
 					params.queueName,
 					nil,
 					gorabbitmq.WithQueueOptionAutoDelete(true),
@@ -910,31 +927,6 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 	}
 }
 
-func Test_Integration_SubscribingTwiceReturnsError(t *testing.T) {
-	t.Parallel()
-
-	connector := getConnector()
-
-	t.Cleanup(func() {
-		err := connector.Close()
-		requireNoError(t, err)
-	})
-
-	consumer, err := connector.NewConsumerAndSubscribe(
-		"test-queue",
-		nil,
-		gorabbitmq.WithQueueOptionAutoDelete(true),
-	)
-	requireNoError(t, err)
-
-	err = consumer.Subscribe(nil)
-
-	requireEqual(t, gorabbitmq.ErrAlreadySubscribed, cause(err))
-
-	err = consumer.Unsubscribe()
-	requireNoError(t, err)
-}
-
 func Test_Integration_ReturnHandler(t *testing.T) {
 	t.Parallel()
 
@@ -964,7 +956,7 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	queueName := stringGen()
 	routingKey := stringGen()
 
-	_, err := connector.NewConsumerAndSubscribe(
+	_, err := connector.RegisterConsumer(
 		queueName,
 		nil,
 		gorabbitmq.WithExchangeOptionDeclare(true),
@@ -982,9 +974,13 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	)
 	requireNoError(t, err)
 
+	// publishing a mandatory message with a routing key with out the existence of a binding.
 	err = publisher.Publish(context.TODO(), "does-not-exist", message)
 	requireNoError(t, err)
 
+	// the publishing is retured to the return handler.
+
+	// waiting for the return handler to process the message.
 	<-doneChan
 }
 
@@ -1039,6 +1035,257 @@ func Test_DecodeDeliveryBody(t *testing.T) {
 	}
 }
 
+// testBuffer is used as buffer for the logging io.Writer
+// with mutex protection for concurrent access.
+type testBuffer struct {
+	mtx  *sync.Mutex
+	buff *bytes.Buffer
+}
+
+// Write implements io.Writer interface.
+// Calls the underlying bytes.Buffer method with mutex protection.
+func (tb *testBuffer) Write(p []byte) (int, error) {
+	tb.mtx.Lock()
+	defer tb.mtx.Unlock()
+
+	return tb.buff.Write(p)
+}
+
+// ReadBytes calls the underlying bytes.Buffer method with mutex protection.
+func (tb *testBuffer) ReadBytes(delim byte) ([]byte, error) {
+	tb.mtx.Lock()
+	defer tb.mtx.Unlock()
+
+	return tb.buff.ReadBytes(delim)
+}
+
+// ReadBytes calls the underlying bytes.Buffer method with mutex protection.
+func (tb *testBuffer) Reset() {
+	tb.mtx.Lock()
+	defer tb.mtx.Unlock()
+
+	tb.buff.Reset()
+}
+
+// ReadBytes calls the underlying bytes.Buffer method with mutex protection.
+func (tb *testBuffer) Len() int {
+	tb.mtx.Lock()
+	defer tb.mtx.Unlock()
+
+	return tb.buff.Len()
+}
+
+func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+	// logEntry is the log entry that will be written to the buffer.
+	type logEntry struct {
+		Time  time.Time `json:"time"`
+		Level string    `json:"level"`
+		Msg   string    `json:"msg"`
+	}
+
+	// used to wait until the handler proccessed the deliveries.
+	doneChan := make(chan struct{})
+
+	message := "test-message"
+
+	// declaring the mutex protected buffer.
+	buffer := &testBuffer{
+		mtx:  &sync.Mutex{},
+		buff: new(bytes.Buffer),
+	}
+
+	// declaring the connector with JSON logging on debug level enabled.
+	// (later used to compare if the reconnection was successful).
+	connector := getConnector(
+		gorabbitmq.WithConnectorOptionJSONLogging(buffer, slog.LevelDebug),
+	)
+
+	t.Cleanup(func() {
+		err := connector.Close()
+		requireNoError(t, err)
+	})
+
+	// msgCounter is used to count the number of deliveries, to compare it afterwords.
+	var msgCounter int
+
+	handler := func(msg gorabbitmq.Delivery) gorabbitmq.Action {
+		requireEqual(t, message, string(msg.Body))
+
+		msgCounter++
+
+		doneChan <- struct{}{}
+
+		return gorabbitmq.Ack
+	}
+
+	queueName := stringGen()
+
+	// registering a consumer.
+	_, err := connector.RegisterConsumer(queueName, handler,
+		gorabbitmq.WithQueueOptionDurable(true),
+		gorabbitmq.WithConsumerOptionConsumerName(stringGen()),
+	)
+	requireNoError(t, err)
+
+	// registering a publisher.
+	publisher, err := connector.NewPublisher()
+	requireNoError(t, err)
+
+	// publish a message.
+	err = publisher.Publish(context.Background(), queueName, message)
+	requireNoError(t, err)
+
+	// waiting for the handler to process the delivery.
+	<-doneChan
+
+	// comparing the msgCounter that should be incremented by the consumer handler.
+	requireEqual(t, 1, msgCounter)
+
+	// shutting down the rabbitmq container to simulate a connection loss.
+	err = exec.Command("docker", "compose", "down", "rabbitmq").Run()
+	requireNoError(t, err)
+
+	// bringing the rabbitmq container up again.
+	err = exec.Command("docker", "compose", "up", "-d").Run()
+	requireNoError(t, err)
+
+	// While trying to reconnect, the logger writes information about the reconnection state on debug level.
+	// In the following for loop, the buffer given to the logger is read until the msg in the
+	// log-entry states that reconnection was successful.
+
+	for {
+		line, err := buffer.ReadBytes('\n')
+		if errors.Is(err, io.EOF) {
+			continue
+		}
+
+		var logEntry logEntry
+
+		_ = json.Unmarshal(line, &logEntry)
+
+		if buffer.Len() == 0 {
+			buffer.Reset()
+		}
+
+		if logEntry.Msg == "successfully reconnected consume connection" {
+			break
+		}
+	}
+
+	// publish a new message to the queue with the reconnected .
+	err = publisher.Publish(context.Background(), queueName, message)
+	requireNoError(t, err)
+
+	// waiting for the recovered consumer to process the new message.
+	<-doneChan
+
+	// comparing the msgCounter again that should now be incremented by the consumer handler to 2.
+	requireEqual(t, 2, msgCounter)
+}
+
+func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+	// used to wait until the handler proccessed the deliveries.
+	doneChan := make(chan struct{})
+
+	message := "test-message"
+
+	// declaring the connector with a maximum of 1 reconnection attempts.
+	connector := getConnector(
+		gorabbitmq.WithConnectorOptionMaxReconnectRetries(1),
+	)
+
+	t.Cleanup(func() {
+		err := connector.Close()
+		requireNoError(t, err)
+	})
+
+	// msgCounter is used to count the number of deliveries, to compare it afterwords.
+	var msgCounter int
+
+	handler := func(msg gorabbitmq.Delivery) gorabbitmq.Action {
+		requireEqual(t, message, string(msg.Body))
+
+		msgCounter++
+
+		doneChan <- struct{}{}
+
+		return gorabbitmq.Ack
+	}
+
+	queueName := stringGen()
+
+	// registering a consumer.
+	_, err := connector.RegisterConsumer(queueName, handler,
+		gorabbitmq.WithQueueOptionDurable(true),
+		gorabbitmq.WithConsumerOptionConsumerName(stringGen()),
+	)
+	requireNoError(t, err)
+
+	// registering a publisher.
+	publisher, err := connector.NewPublisher()
+	requireNoError(t, err)
+
+	// publish a message.
+	err = publisher.Publish(context.Background(), queueName, message)
+	requireNoError(t, err)
+
+	notifyChan, err := connector.NotifyFailedRecovery()
+	requireNoError(t, err)
+
+	notifyDoneChan := make(chan struct{})
+
+	// handling the failed recovery notification.
+	go func() {
+		for range notifyChan {
+			notifyDoneChan <- struct{}{}
+		}
+	}()
+
+	// waiting for the handler to process the delivery.
+	<-doneChan
+
+	// comparing the msgCounter that should be incremented by the consumer handler.
+	requireEqual(t, 1, msgCounter)
+
+	// shutting down the rabbitmq container to simulate a connection loss.
+	err = exec.Command("docker", "compose", "down", "rabbitmq").Run()
+	requireNoError(t, err)
+
+	// waiting for the failed recovery notification to finish handling.
+	<-notifyDoneChan
+
+	// bringing the rabbitmq container up again.
+	err = exec.Command("docker", "compose", "up", "-d").Run()
+	requireNoError(t, err)
+
+	// polling to check the container health.
+	for range time.NewTicker(1 * time.Second).C {
+		status, err := exec.Command("docker", "inspect", "-f", "{{.State.Health.Status}}", "rabbitmq").Output()
+		requireNoError(t, err)
+
+		if strings.ReplaceAll(string(status), "\n", "") == "healthy" {
+			break
+		}
+	}
+
+	// manually reconnecting.
+	err = connector.Reconnect()
+	requireNoError(t, err)
+
+	// publish a new message to the queue with the reconnected .
+	err = publisher.Publish(context.Background(), queueName, message)
+	requireNoError(t, err)
+
+	// waiting for the recovered consumer to process the new message.
+	<-doneChan
+
+	// comparing the msgCounter again that should now be incremented by the consumer handler to 2.
+	requireEqual(t, 2, msgCounter)
+}
+
+// ##### helper functions: ##########################
+
+// Returns a new connector with the given options.
 func getConnector(options ...gorabbitmq.ConnectorOption) *gorabbitmq.Connector {
 	return gorabbitmq.NewConnector(&gorabbitmq.ConnectionSettings{
 		UserName: "guest",
@@ -1050,6 +1297,7 @@ func getConnector(options ...gorabbitmq.ConnectorOption) *gorabbitmq.Connector {
 	)
 }
 
+// Compares two values and reports an error if they are not equal.
 func requireEqual(t *testing.T, expected any, actual any) {
 	t.Helper()
 
@@ -1060,6 +1308,7 @@ func requireEqual(t *testing.T, expected any, actual any) {
 	}
 }
 
+// Ensures that err is nil, otherwise it reports an error.
 func requireNoError(t *testing.T, err error) {
 	t.Helper()
 
@@ -1068,30 +1317,15 @@ func requireNoError(t *testing.T, err error) {
 	}
 }
 
-func cause(err error) error {
-	type causer interface {
-		Unwrap() error
-	}
-
-	for err != nil {
-		cause, ok := err.(causer) //nolint: errorlint // expected behavior
-		if !ok {
-			break
-		}
-
-		err = cause.Unwrap()
-	}
-
-	return err
-}
-
+// Generates a random string for names (e.g. queue-names, exchange-names, routing-keys)
+// that need to be unique since almost all tests run in parallel.
 func stringGen() string {
-	bytes := make([]byte, 16)
+	buffer := make([]byte, 16)
 
-	_, err := rand.Read(bytes)
+	_, err := rand.Read(buffer)
 	if err != nil {
 		return ""
 	}
 
-	return hex.EncodeToString(bytes)
+	return hex.EncodeToString(buffer)
 }

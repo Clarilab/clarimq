@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	defaultReconnectInterval time.Duration = 5 * time.Second
-	defaultPrefetchCount     int           = 0
+	defaultReconnectInterval   time.Duration = time.Second
+	defaultMaxReconnectRetries int           = 10
+	defaultBackoffFactor       int           = 2
+	defaultPrefetchCount       int           = 0
 )
 
 type (
@@ -25,12 +27,14 @@ type (
 	// ConnectorOptions are used to describe how a new connector will be created.
 	ConnectorOptions struct {
 		ReturnHandler
-		logger            []*slog.Logger
-		Config            *Config
-		Codec             *codec
-		uri               string
-		PrefetchCount     int
-		ReconnectInterval time.Duration
+		logger              []*slog.Logger
+		Config              *Config
+		Codec               *codec
+		uri                 string
+		PrefetchCount       int
+		ReconnectInterval   time.Duration
+		MaxReconnectRetries int
+		BackoffFactor       int
 	}
 
 	// ConnectionSettings holds settings for a rabbitMQConnector connection.
@@ -50,8 +54,10 @@ type (
 
 func defaultConnectorOptions(uri string) *ConnectorOptions {
 	return &ConnectorOptions{
-		uri:               uri,
-		ReconnectInterval: defaultReconnectInterval,
+		uri:                 uri,
+		ReconnectInterval:   defaultReconnectInterval,
+		MaxReconnectRetries: defaultMaxReconnectRetries,
+		BackoffFactor:       defaultBackoffFactor,
 		Config: &Config{
 			Properties: make(amqp.Table),
 		},
@@ -144,4 +150,25 @@ func WithConnectorOptionDecoder(decoder JSONDecoder) ConnectorOption {
 // by this return handler.
 func WithConnectorOptionReturnHandler(returnHandler ReturnHandler) ConnectorOption {
 	return func(options *ConnectorOptions) { options.ReturnHandler = returnHandler }
+}
+
+// WithConnectorOptionReconnectInterval sets the initial reconnection interval.
+//
+// Default: 1s.
+func WithConnectorOptionReconnectInterval(interval time.Duration) ConnectorOption {
+	return func(options *ConnectorOptions) { options.ReconnectInterval = interval }
+}
+
+// WithConnectorOptionMaxReconnectRetries sets the limit for maximum retries.
+//
+// Default: 10.
+func WithConnectorOptionMaxReconnectRetries(maxRetries int) ConnectorOption {
+	return func(options *ConnectorOptions) { options.MaxReconnectRetries = maxRetries }
+}
+
+// WithConnectorOptionBackoffFactor sets the exponential backoff factor.
+//
+// Default: 2.
+func WithConnectorOptionBackoffFactor(factor int) ConnectorOption {
+	return func(options *ConnectorOptions) { options.BackoffFactor = factor }
 }

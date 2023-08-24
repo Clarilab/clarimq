@@ -3,6 +3,7 @@ package gorabbitmq
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -16,8 +17,10 @@ const (
 
 // Publisher is a publisher for AMQP messages.
 type Publisher struct {
-	connector *Connector
-	options   *PublishOptions
+	channel *amqp.Channel
+	options *PublishOptions
+	encoder JSONEncoder
+	name    string
 }
 
 // Creates a new Publisher instance. Options can be passed to customize the behavior of the Publisher.
@@ -30,24 +33,37 @@ func (c *Connector) NewPublisher(options ...PublishOption) (*Publisher, error) {
 		options[i](opt)
 	}
 
-	var err error
+	if c.publishConnection == nil {
+		c.publishConnection = &connection{
+			amqpConnectionMtx:    &sync.Mutex{},
+			amqpChannelMtx:       &sync.Mutex{},
+			connectionCloseWG:    &sync.WaitGroup{},
+			publishersMtx:        &sync.Mutex{},
+			publishers:           make(map[string]*Publisher),
+			reconnectFailChanMtx: &sync.Mutex{},
+			reconnectFailChan:    make(chan error, reconnectFailChanSize),
+		}
+	}
 
-	c.publishConn, c.publishChannel, err = connect(&connectParams{
-		instanceType: publish,
-		conn:         c.publishConn,
-		channel:      c.publishChannel,
-		opt:          c.options,
-		closeWG:      c.publishCloseWG,
-		logger:       c.log,
-	})
+	publisherName := newRandomString()
+
+	err := connect(c.publishConnection, c.options, c.log, publish)
 	if err != nil {
 		return nil, fmt.Errorf(errMessage, err)
 	}
 
-	return &Publisher{
-		connector: c,
-		options:   opt,
-	}, nil
+	publisher := &Publisher{
+		channel: c.publishConnection.amqpChannel,
+		options: opt,
+		encoder: c.options.Codec.Encoder,
+		name:    publisherName,
+	}
+
+	c.publishConnection.publishersMtx.Lock()
+	c.publishConnection.publishers[publisherName] = publisher
+	c.publishConnection.publishersMtx.Unlock()
+
+	return publisher, nil
 }
 
 // Publish publishes a message with the publish options configured in the Publisher.
@@ -123,7 +139,7 @@ func (publisher *Publisher) sendMessage(ctx context.Context, routingKeys []strin
 			AppId:           options.AppID,
 		}
 
-		if err := publisher.connector.publishChannel.PublishWithContext(
+		if err := publisher.channel.PublishWithContext(
 			ctx,
 			options.Exchange,
 			key,
@@ -161,7 +177,7 @@ func (publisher *Publisher) encodeBody(data any, options *PublishOptions) ([]byt
 	default:
 		var err error
 
-		body, err = publisher.connector.options.Codec.Encoder(data)
+		body, err = publisher.encoder(data)
 		if err != nil {
 			return nil, fmt.Errorf(errMessage, err)
 		}
