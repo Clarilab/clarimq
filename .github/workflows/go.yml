@@ -39,9 +39,6 @@ jobs:
         curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
         golangci-lint run --out-format=github-actions
 
-    - name: Test
-      run: make test
-
     - name: Integration Test
       run: make test_integration
     

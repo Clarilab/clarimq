@@ -1,4 +1,4 @@
-all: vet lint vuln test
+all: vet lint vuln test_all
 
 vet:
 	go vet ./...
@@ -19,3 +19,5 @@ test_integration:
 
 test_reconnection:
 	./run_integration_tests.sh Test_Reconnection
+
+test_all: test test_integration test_reconnection

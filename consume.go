@@ -2,7 +2,6 @@ package gorabbitmq
 
 import (
 	"fmt"
-	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -11,11 +10,9 @@ type (
 
 	// Consumer is a consumer for AMQP messages.
 	Consumer struct {
-		channel     *amqp.Channel
-		options     *ConsumeOptions
-		handler     HandlerFunc
-		logger      *log
-		unsubscribe chan string
+		conn    *Connection
+		options *ConsumeOptions
+		handler HandlerFunc
 	}
 
 	// Delivery captures the fields for a previously delivered message resident in
@@ -30,8 +27,12 @@ type (
 )
 
 // NewConsumer creates a new Consumer instance. Options can be passed to customize the behavior of the Consumer.
-func (c *Connector) newConsumer(queueName string, options ...ConsumeOption) (*Consumer, error) {
+func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, options ...ConsumeOption) (*Consumer, error) {
 	const errMessage = "failed to create consumer: %w"
+
+	if conn == nil {
+		return nil, fmt.Errorf(errMessage, ErrInvalidConnection)
+	}
 
 	opt := defaultConsumerOptions()
 
@@ -41,125 +42,41 @@ func (c *Connector) newConsumer(queueName string, options ...ConsumeOption) (*Co
 
 	opt.QueueOptions.name = queueName
 
-	unsubscribeChan := make(chan string)
-
-	if c.consumeConnection == nil {
-		c.consumeConnection = &connection{
-			amqpConnectionMtx:    &sync.Mutex{},
-			amqpChannelMtx:       &sync.Mutex{},
-			connectionCloseWG:    &sync.WaitGroup{},
-			consumersMtx:         &sync.Mutex{},
-			consumers:            make(map[string]*Consumer),
-			consumerCloseChan:    unsubscribeChan,
-			reconnectFailChanMtx: &sync.Mutex{},
-			reconnectFailChan:    make(chan error, reconnectFailChanSize),
-		}
+	consumer := &Consumer{
+		conn:    conn,
+		options: opt,
+		handler: handler,
 	}
 
-	err := connect(c.consumeConnection, c.options, c.log, consume)
-	if err != nil {
+	if err := consumer.startConsuming(); err != nil {
 		return nil, fmt.Errorf(errMessage, err)
 	}
 
-	return &Consumer{
-		channel:     c.consumeConnection.amqpChannel,
-		options:     opt,
-		logger:      c.log,
-		unsubscribe: unsubscribeChan,
-	}, nil
-}
+	consumer.watchRecoverConsumerChan()
 
-func (c *Connector) RegisterConsumer(queueName string, handler HandlerFunc, options ...ConsumeOption) (*Consumer, error) {
-	const errMessage = "failed to register consumer: %w"
-
-	consumer, err := c.newConsumer(queueName, options...)
-	if err != nil {
-		return nil, fmt.Errorf(errMessage, err)
-	}
-
-	if err = consumer.registerAndStartConsumer(c.consumeConnection, handler); err != nil {
-		return nil, fmt.Errorf(errMessage, err)
-	}
+	consumer.conn.runningConsumers++
 
 	return consumer, nil
-}
-
-func (c *Consumer) registerAndStartConsumer(conn *connection, handler HandlerFunc) error {
-	const errMessage = "failed to start consumer: %w"
-
-	c.handler = handler
-
-	conn.consumersMtx.Lock()
-	conn.consumers[c.options.ConsumerOptions.Name] = c
-	conn.consumersMtx.Unlock()
-
-	if err := c.startConsuming(); err != nil {
-		return fmt.Errorf(errMessage, err)
-	}
-
-	return nil
 }
 
 // Close stops consuming messages from the subscribed queue.
 func (c *Consumer) Close() error {
 	const errMessage = "failed to unsubscribe consumer: %w"
 
-	c.unsubscribe <- c.options.ConsumerOptions.Name
-
-	if err := c.channel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
+	if err := c.conn.amqpChannel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
+
+	c.conn.runningConsumers--
 
 	return nil
 }
 
-// RemoveQueue removes the queue from the server including all bindings then purges the messages based on
-// server configuration, returning the number of messages purged.
-//
-// When ifUnused is true, the queue will not be deleted if there are any consumers on the queue.
-// If there are consumers, an error will be returned and the channel will be closed.
-//
-// When ifEmpty is true, the queue will not be deleted if there are any messages remaining on the queue.
-// If there are messages, an error will be returned and the channel will be closed.
-func (c *Consumer) RemoveQueue(name string, ifUnused bool, ifEmpty bool, noWait bool) (int, error) {
-	const errMessage = "failed to remove queue: %w"
+// DecodeDeliveryBody can be used to decode the body of a delivery into v.
+func (c *Consumer) DecodeDeliveryBody(delivery Delivery, v any) error {
+	const errMessage = "failed to decode delivery body: %w"
 
-	removedMessages, err := c.channel.QueueDelete(name, ifUnused, ifEmpty, noWait)
-	if err != nil {
-		return 0, fmt.Errorf(errMessage, err)
-	}
-
-	return removedMessages, nil
-}
-
-// RemoveBinding removes a binding between an exchange and queue matching the key and arguments.
-//
-// It is possible to send and empty string for the exchange name which means to unbind the queue from the default exchange.
-func (c *Consumer) RemoveBinding(queueName string, routingKey string, exchangeName string, args Table) error {
-	const errMessage = "failed to remove binding: %w"
-
-	err := c.channel.QueueUnbind(queueName, routingKey, exchangeName, amqp.Table(args))
-	if err != nil {
-		return fmt.Errorf(errMessage, err)
-	}
-
-	return nil
-}
-
-// ExchangeDelete removes the named exchange from the server. When an exchange is deleted all queue bindings
-// on the exchange are also deleted. If this exchange does not exist, the channel will be closed with an error.
-//
-// When ifUnused is true, the server will only delete the exchange if it has no queue bindings.
-// If the exchange has queue bindings the server does not delete it but close the channel with an exception instead.
-// Set this to true if you are not the sole owner of the exchange.
-//
-// When noWait is true, do not wait for a server confirmation that the exchange has been deleted.
-// Failing to delete the channel could close the channel. Add a NotifyClose listener to respond to these channel exceptions.
-func (c *Consumer) RemoveExchange(name string, ifUnused bool, noWait bool) error {
-	const errMessage = "failed to remove exchange: %w"
-
-	err := c.channel.ExchangeDelete(name, ifUnused, noWait)
-	if err != nil {
+	if err := c.conn.options.Codec.Decoder(delivery.Body, v); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -169,22 +86,22 @@ func (c *Consumer) RemoveExchange(name string, ifUnused bool, noWait bool) error
 func (c *Consumer) startConsuming() error {
 	const errMessage = "failed to start consuming: %w"
 
-	err := declareExchange(c.channel, c.options.ExchangeOptions)
+	err := declareExchange(c.conn.amqpChannel, c.options.ExchangeOptions)
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	err = declareQueue(c.channel, c.options.QueueOptions)
+	err = declareQueue(c.conn.amqpChannel, c.options.QueueOptions)
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	err = declareBindings(c.channel, c.options)
+	err = declareBindings(c.conn.amqpChannel, c.options)
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	deliveries, err := c.channel.Consume(
+	deliveries, err := c.conn.amqpChannel.Consume(
 		c.options.QueueOptions.name,
 		c.options.ConsumerOptions.Name,
 		c.options.ConsumerOptions.AutoAck,
@@ -201,15 +118,15 @@ func (c *Consumer) startConsuming() error {
 		go c.handlerRoutine(deliveries, c.options, c.handler)
 	}
 
-	c.logger.logDebug(fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
+	c.conn.logger.logDebug(fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
 
 	return nil
 }
 
 func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery, consumeOptions *ConsumeOptions, handler HandlerFunc) {
 	for msg := range deliveries {
-		if c.channel.IsClosed() {
-			c.logger.logDebug("message handler stopped: channel is closed")
+		if c.conn.amqpChannel.IsClosed() {
+			c.conn.logger.logDebug("message handler stopped: channel is closed")
 
 			break
 		}
@@ -224,23 +141,31 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery, consumeOption
 		case Ack:
 			err := msg.Ack(false)
 			if err != nil {
-				c.logger.logError("could not ack message: %v", err)
+				c.conn.logger.logError("could not ack message: %v", err)
 			}
 
 		case NackDiscard:
 			err := msg.Nack(false, false)
 			if err != nil {
-				c.logger.logError("could not nack message: %v", err)
+				c.conn.logger.logError("could not nack message: %v", err)
 			}
 
 		case NackRequeue:
 			err := msg.Nack(false, true)
 			if err != nil {
-				c.logger.logError("could not nack message: %v", err)
+				c.conn.logger.logError("could not nack message: %v", err)
 			}
 
 		case Manual:
 			continue
 		}
 	}
+}
+
+func (c *Consumer) watchRecoverConsumerChan() {
+	go func() {
+		for range c.conn.consumerRecoveryChan {
+			c.conn.consumerRecoveryChan <- c.startConsuming()
+		}
+	}()
 }

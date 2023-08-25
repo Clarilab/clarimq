@@ -12,3 +12,6 @@ var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 
 // ErrHealthyConnection occures if a manual reconnect is triggered but the connection persists.
 var ErrHealthyConnection = errors.New("connection is healthy, no need to reconnect")
+
+// ErrInvalidConnection when an invalid connection is passed to a publisher or a consumer.
+var ErrInvalidConnection = errors.New("invalid connection")
