@@ -65,13 +65,16 @@ func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, option
 func (c *Consumer) Close() error {
 	const errMessage = "failed to unsubscribe consumer: %w"
 
-	if c.options.RetryOptions != nil && c.options.RetryOptions.Cleanup {
-		if err := c.cleanupDeadLetterRetry(); err != nil {
+	var err error
+
+	if c.options.RetryOptions != nil {
+		err = c.closeDeadLetterRetry()
+		if err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 	}
 
-	if err := c.conn.amqpChannel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
+	if err = c.conn.amqpChannel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 

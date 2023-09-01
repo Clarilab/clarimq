@@ -48,10 +48,12 @@ type (
 		// When enabled all retry related queues and exchanges associated when the consumer gets closed.
 		//
 		// Warning: Exiting messages on the retry queues will be purged.
-		Cleanup     bool
-		publisher   *Publisher
-		dlxName     string
-		dlqNameBase string
+		Cleanup bool
+
+		publisher      *Publisher
+		isInternalConn bool
+		dlxName        string
+		dlqNameBase    string
 	}
 
 	// ConsumerOptions are used to configure the consumer
