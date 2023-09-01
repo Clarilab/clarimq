@@ -1,4 +1,4 @@
-package gorabbitmq
+package clarimq
 
 import (
 	"log/slog"

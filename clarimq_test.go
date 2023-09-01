@@ -1,4 +1,4 @@
-package gorabbitmq_test
+package clarimq_test
 
 import (
 	"bytes"
@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Clarilab/gorabbitmq/v5"
+	"github.com/Clarilab/clarimq"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -49,97 +49,97 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		deliveryHandler func(any, chan struct{}) gorabbitmq.HandlerFunc
-		getConsumer     func(*gorabbitmq.Connection, gorabbitmq.HandlerFunc, *testParams) (*gorabbitmq.Consumer, error)
+		deliveryHandler func(any, chan struct{}) clarimq.HandlerFunc
+		getConsumer     func(*clarimq.Connection, clarimq.HandlerFunc, *testParams) (*clarimq.Consumer, error)
 		passiveExchange bool
 		message         any
 	}{
 		"publish to exchange / consume with exchange NoWait": {
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithExchangeOptionNoWait(true),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithExchangeOptionNoWait(true),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
 
 			message: stringMessage,
 		},
 		"publish to exchange passive": {
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, d.Body)
 					requireEqual(t, "application/octet-stream", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
-					gorabbitmq.WithExchangeOptionPassive(true),
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithExchangeOptionPassive(true),
 				)
 			},
 			passiveExchange: true,
 			message:         bytesMessage,
 		},
 		"publish bytes message": {
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, d.Body)
 					requireEqual(t, "application/octet-stream", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
 
 			message: bytesMessage,
 		},
 		"publish json message": {
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, "application/json", d.ContentType)
 
 					var result testData
@@ -151,20 +151,20 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
 			message: jsonMessage,
@@ -200,15 +200,15 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 			// so here the exchange gets declared before the binding is declared.
 
 			if test.passiveExchange {
-				consumer, err := gorabbitmq.NewConsumer(
+				consumer, err := clarimq.NewConsumer(
 					consumerConn,
 					testParams.queueName,
 					nil,
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(testParams.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(testParams.routingKey),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(testParams.exchangeName),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionRoutingKey(testParams.routingKey),
 				)
 
 				requireNoError(t, err)
@@ -220,9 +220,9 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 			_, err := test.getConsumer(consumerConn, test.deliveryHandler(test.message, doneChan), testParams)
 			requireNoError(t, err)
 
-			publisher, err := gorabbitmq.NewPublisher(
+			publisher, err := clarimq.NewPublisher(
 				publishConn,
-				gorabbitmq.WithPublishOptionExchange(testParams.exchangeName),
+				clarimq.WithPublishOptionExchange(testParams.exchangeName),
 			)
 			requireNoError(t, err)
 
@@ -246,132 +246,132 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 	message := "test-message"
 
 	tests := map[string]struct {
-		deliveryHandler func(any, chan struct{}) gorabbitmq.HandlerFunc
-		getConsumer     func(*gorabbitmq.Connection, gorabbitmq.HandlerFunc, string) (*gorabbitmq.Consumer, error)
+		deliveryHandler func(any, chan struct{}) clarimq.HandlerFunc
+		getConsumer     func(*clarimq.Connection, clarimq.HandlerFunc, string) (*clarimq.Consumer, error)
 		passiveQueue    bool
-		publish         func(*gorabbitmq.Publisher, string) error
+		publish         func(*clarimq.Publisher, string) error
 	}{
 		"publish to queue": {
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, queueName string) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					queueName,
 					handler,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithQueueOptionArgs(gorabbitmq.Table{
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithQueueOptionArgs(clarimq.Table{
 						"test-queue-arg-key": "test-queue-arg-value",
 					}),
 				)
 			},
-			publish: func(p *gorabbitmq.Publisher, target string) error {
+			publish: func(p *clarimq.Publisher, target string) error {
 				return p.PublishWithOptions(context.TODO(), []string{target}, message)
 			},
 		},
 		"publish to queue passive": {
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, queueName string) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					queueName,
 					handler,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithQueueOptionPassive(true),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithQueueOptionPassive(true),
 				)
 			},
-			publish: func(p *gorabbitmq.Publisher, target string) error {
+			publish: func(p *clarimq.Publisher, target string) error {
 				return p.PublishWithOptions(context.TODO(), []string{target}, message)
 			},
 			passiveQueue: true,
 		},
 		"publish to queue NoWait": {
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, queueName string) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					queueName,
 					handler,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithQueueOptionNoWait(true),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithQueueOptionNoWait(true),
 				)
 			},
-			publish: func(p *gorabbitmq.Publisher, target string) error {
+			publish: func(p *clarimq.Publisher, target string) error {
 				return p.PublishWithOptions(context.TODO(), []string{target}, message)
 			},
 		},
 		"publish to priority queue": {
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 					requireEqual(t, 4, int(d.Priority))
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, queueName string) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					queueName,
 					handler,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithQueueOptionPriority(gorabbitmq.HighestPriority),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithQueueOptionPriority(clarimq.HighestPriority),
 				)
 			},
-			publish: func(p *gorabbitmq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message, gorabbitmq.WithPublishOptionPriority(gorabbitmq.HighPriority))
+			publish: func(p *clarimq.Publisher, target string) error {
+				return p.PublishWithOptions(context.TODO(), []string{target}, message, clarimq.WithPublishOptionPriority(clarimq.HighPriority))
 			},
 		},
 		"publish to durable queue": {
-			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, queueName string) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, queueName string) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					queueName,
 					handler,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithQueueOptionDurable(true),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithQueueOptionDurable(true),
 				)
 			},
-			publish: func(p *gorabbitmq.Publisher, target string) error {
+			publish: func(p *clarimq.Publisher, target string) error {
 				return p.PublishWithOptions(context.TODO(), []string{target}, message)
 			},
 		},
@@ -401,7 +401,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 			// so here the queue gets declared before the consumer subscribes.
 
 			if test.passiveQueue {
-				consumer, err := gorabbitmq.NewConsumer(consumeConn, queueName, nil)
+				consumer, err := clarimq.NewConsumer(consumeConn, queueName, nil)
 
 				requireNoError(t, err)
 
@@ -412,7 +412,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 			_, err := test.getConsumer(consumeConn, test.deliveryHandler(message, doneChan), queueName)
 			requireNoError(t, err)
 
-			publisher, err := gorabbitmq.NewPublisher(publishConn)
+			publisher, err := clarimq.NewPublisher(publishConn)
 			requireNoError(t, err)
 
 			err = test.publish(publisher, queueName)
@@ -435,99 +435,99 @@ func Test_Integration_Consume(t *testing.T) {
 	message := "test-message"
 
 	tests := map[string]struct {
-		deliveryHandler func(any, int, chan struct{}) gorabbitmq.HandlerFunc
-		getConsumer     func(*gorabbitmq.Connection, gorabbitmq.HandlerFunc, *testParams) (*gorabbitmq.Consumer, error)
+		deliveryHandler func(any, int, chan struct{}) clarimq.HandlerFunc
+		getConsumer     func(*clarimq.Connection, clarimq.HandlerFunc, *testParams) (*clarimq.Consumer, error)
 	}{
 		"consume with Ack": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithExchangeOptionArgs(gorabbitmq.Table{
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithExchangeOptionArgs(clarimq.Table{
 						"test-exchange-arg-key": "test-exchange-arg-value",
 					}),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
 		},
 		"consume with NackDisgard": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.NackDiscard
+					return clarimq.NackDiscard
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
 		},
 		"consume with NackRequeue": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 					counter++
 
 					switch counter {
 					case 1:
-						return gorabbitmq.NackRequeue
+						return clarimq.NackRequeue
 
 					case 2:
 						doneChan <- struct{}{}
 
-						return gorabbitmq.Ack
+						return clarimq.Ack
 					}
 
-					return gorabbitmq.NackDiscard
+					return clarimq.NackDiscard
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
 		},
 		"consume with Manual": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(delivery *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(delivery *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(delivery.Body))
 					requireEqual(t, "text/plain", delivery.ContentType)
 
@@ -536,101 +536,101 @@ func Test_Integration_Consume(t *testing.T) {
 					err := delivery.Ack(false)
 					requireNoError(t, err)
 
-					return gorabbitmq.Manual
+					return clarimq.Manual
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithExchangeOptionArgs(gorabbitmq.Table{
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithExchangeOptionArgs(clarimq.Table{
 						"test-exchange-arg-key": "test-exchange-arg-value",
 					}),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
 		},
 		"consume with AutoAck": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Manual
+					return clarimq.Manual
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
-					gorabbitmq.WithConsumerOptionConsumerAutoAck(true),
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithConsumerOptionConsumerAutoAck(true),
 				)
 			},
 		},
 		"consume with consumer NoWait": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionNoWait(true),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionNoWait(true),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
 		},
 		"consume with multiple message handlers": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 
 					doneChan <- struct{}{}
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getConsumer: func(conn *gorabbitmq.Connection, handler gorabbitmq.HandlerFunc, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, handler clarimq.HandlerFunc, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					handler,
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithConsumerOptionHandlerQuantity(4),
-					gorabbitmq.WithConsumerOptionRoutingKey(params.routingKey),
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithConsumerOptionHandlerQuantity(4),
+					clarimq.WithConsumerOptionRoutingKey(params.routingKey),
 				)
 			},
 		},
@@ -666,9 +666,9 @@ func Test_Integration_Consume(t *testing.T) {
 			_, err := test.getConsumer(consumeConn, test.deliveryHandler(message, counter, doneChan), testParams)
 			requireNoError(t, err)
 
-			publisher, err := gorabbitmq.NewPublisher(
+			publisher, err := clarimq.NewPublisher(
 				publishConn,
-				gorabbitmq.WithPublishOptionExchange(testParams.exchangeName),
+				clarimq.WithPublishOptionExchange(testParams.exchangeName),
 			)
 			requireNoError(t, err)
 
@@ -688,15 +688,15 @@ func Test_Integration_CustomOptions(t *testing.T) {
 	now := time.Date(2023, 8, 1, 12, 0, 0, 0, time.Local)
 
 	tests := map[string]struct {
-		publishConn     *gorabbitmq.Connection
-		deliveryHandler func(any, *sync.WaitGroup) gorabbitmq.HandlerFunc
-		getPublisher    func(*gorabbitmq.Connection) (*gorabbitmq.Publisher, error)
-		publish         func(*gorabbitmq.Publisher, []string) error
+		publishConn     *clarimq.Connection
+		deliveryHandler func(any, *sync.WaitGroup) clarimq.HandlerFunc
+		getPublisher    func(*clarimq.Connection) (*clarimq.Publisher, error)
+		publish         func(*clarimq.Publisher, []string) error
 	}{
 		"publish with options": {
 			publishConn: getConnection(t),
-			deliveryHandler: func(expectedMessage any, wg *sync.WaitGroup) gorabbitmq.HandlerFunc {
-				return func(delivery *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, wg *sync.WaitGroup) clarimq.HandlerFunc {
+				return func(delivery *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(delivery.Body))
 					requireEqual(t, "test-service", delivery.AppId)
 					requireEqual(t, "guest", delivery.UserId)
@@ -708,44 +708,44 @@ func Test_Integration_CustomOptions(t *testing.T) {
 					requireEqual(t, "test-type", delivery.Type)
 					requireEqual(t, "20000", delivery.Expiration)
 					requireEqual(t, "for-rpc-clients", delivery.ReplyTo)
-					requireEqual(t, gorabbitmq.Table{"test-header": "test-value"}, gorabbitmq.Table(delivery.Headers))
+					requireEqual(t, clarimq.Table{"test-header": "test-value"}, clarimq.Table(delivery.Headers))
 
 					wg.Done()
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getPublisher: func(conn *gorabbitmq.Connection) (*gorabbitmq.Publisher, error) {
-				return gorabbitmq.NewPublisher(
+			getPublisher: func(conn *clarimq.Connection) (*clarimq.Publisher, error) {
+				return clarimq.NewPublisher(
 					conn,
-					gorabbitmq.WithPublishOptionAppID("test-service"),
-					gorabbitmq.WithPublishOptionUserID("guest"),
-					gorabbitmq.WithPublishOptionTimestamp(now),
-					gorabbitmq.WithPublishOptionMessageID("1234567890"),
-					gorabbitmq.WithPublishOptionTracing("0987654321"),
-					gorabbitmq.WithPublishOptionContentType("test-content-type"),
-					gorabbitmq.WithPublishOptionContentEncoding("test-content-encoding"),
-					gorabbitmq.WithPublishOptionType("test-type"),
-					gorabbitmq.WithPublishOptionExpiration("20000"),
-					gorabbitmq.WithPublishOptionReplyTo("for-rpc-clients"),
-					gorabbitmq.WithPublishOptionHeaders(gorabbitmq.Table{
+					clarimq.WithPublishOptionAppID("test-service"),
+					clarimq.WithPublishOptionUserID("guest"),
+					clarimq.WithPublishOptionTimestamp(now),
+					clarimq.WithPublishOptionMessageID("1234567890"),
+					clarimq.WithPublishOptionTracing("0987654321"),
+					clarimq.WithPublishOptionContentType("test-content-type"),
+					clarimq.WithPublishOptionContentEncoding("test-content-encoding"),
+					clarimq.WithPublishOptionType("test-type"),
+					clarimq.WithPublishOptionExpiration("20000"),
+					clarimq.WithPublishOptionReplyTo("for-rpc-clients"),
+					clarimq.WithPublishOptionHeaders(clarimq.Table{
 						"test-header": "test-value",
 					}),
 				)
 			},
-			publish: func(p *gorabbitmq.Publisher, targets []string) error {
+			publish: func(p *clarimq.Publisher, targets []string) error {
 				return p.PublishWithOptions(context.TODO(), targets, message)
 			},
 		},
 		"publish with custom options": {
-			publishConn: func() *gorabbitmq.Connection {
-				amqpConfig := gorabbitmq.Config{
+			publishConn: func() *clarimq.Connection {
+				amqpConfig := clarimq.Config{
 					Properties: amqp.Table{},
 				}
 				amqpConfig.Properties.SetClientConnectionName(stringGen())
 
-				return getConnection(t, gorabbitmq.WithCustomConnectionOptions(
-					&gorabbitmq.ConnectionOptions{
+				return getConnection(t, clarimq.WithCustomConnectionOptions(
+					&clarimq.ConnectionOptions{
 						ReturnHandler:     nil,
 						Config:            &amqpConfig,
 						PrefetchCount:     0,
@@ -753,8 +753,8 @@ func Test_Integration_CustomOptions(t *testing.T) {
 					},
 				))
 			}(),
-			deliveryHandler: func(expectedMessage any, wg *sync.WaitGroup) gorabbitmq.HandlerFunc {
-				return func(d *gorabbitmq.Delivery) gorabbitmq.Action {
+			deliveryHandler: func(expectedMessage any, wg *sync.WaitGroup) clarimq.HandlerFunc {
+				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
 					requireEqual(t, "messageID", d.MessageId)
@@ -763,19 +763,19 @@ func Test_Integration_CustomOptions(t *testing.T) {
 
 					wg.Done()
 
-					return gorabbitmq.Ack
+					return clarimq.Ack
 				}
 			},
-			getPublisher: func(conn *gorabbitmq.Connection) (*gorabbitmq.Publisher, error) {
-				return gorabbitmq.NewPublisher(conn)
+			getPublisher: func(conn *clarimq.Connection) (*clarimq.Publisher, error) {
+				return clarimq.NewPublisher(conn)
 			},
-			publish: func(p *gorabbitmq.Publisher, targets []string) error {
+			publish: func(p *clarimq.Publisher, targets []string) error {
 				return p.PublishWithOptions(
 					context.TODO(),
 					targets,
 					message,
-					gorabbitmq.WithCustomPublishOptions(
-						&gorabbitmq.PublishOptions{
+					clarimq.WithCustomPublishOptions(
+						&clarimq.PublishOptions{
 							MessageID:     "messageID",
 							CorrelationID: "correlationID",
 							Timestamp:     now,
@@ -783,16 +783,16 @@ func Test_Integration_CustomOptions(t *testing.T) {
 							UserID:        "guest",
 							ContentType:   "text/plain",
 							Mandatory:     false,
-							Headers: gorabbitmq.Table{
+							Headers: clarimq.Table{
 								"test-header": "test-header-value",
 							},
-							Exchange:        gorabbitmq.ExchangeDefault,
+							Exchange:        clarimq.ExchangeDefault,
 							Expiration:      "200000",
 							ContentEncoding: "",
 							ReplyTo:         "for-rpc-servers",
 							Type:            "",
-							Priority:        gorabbitmq.NoPriority,
-							DeliveryMode:    gorabbitmq.TransientDelivery,
+							Priority:        clarimq.NoPriority,
+							DeliveryMode:    clarimq.TransientDelivery,
 						},
 					),
 				)
@@ -824,37 +824,37 @@ func Test_Integration_CustomOptions(t *testing.T) {
 			wg.Add(2)
 
 			// registering first consumer.
-			_, err := gorabbitmq.NewConsumer(
+			_, err := clarimq.NewConsumer(
 				consumeConn,
 				targets[0],
 				test.deliveryHandler(message, wg),
-				gorabbitmq.WithQueueOptionAutoDelete(true),
-				gorabbitmq.WithConsumerOptionConsumerName(fmt.Sprintf("my_consumer_%s", stringGen())),
+				clarimq.WithQueueOptionAutoDelete(true),
+				clarimq.WithConsumerOptionConsumerName(fmt.Sprintf("my_consumer_%s", stringGen())),
 			)
 			requireNoError(t, err)
 
 			// registering second consumer with custom options.
-			_, err = gorabbitmq.NewConsumer(
+			_, err = clarimq.NewConsumer(
 				consumeConn,
 				targets[1],
 				test.deliveryHandler(message, wg),
-				gorabbitmq.WithCustomConsumeOptions(
-					&gorabbitmq.ConsumeOptions{
-						ConsumerOptions: &gorabbitmq.ConsumerOptions{
-							Args: make(gorabbitmq.Table),
+				clarimq.WithCustomConsumeOptions(
+					&clarimq.ConsumeOptions{
+						ConsumerOptions: &clarimq.ConsumerOptions{
+							Args: make(clarimq.Table),
 							Name: stringGen(),
 						},
-						QueueOptions: &gorabbitmq.QueueOptions{
-							Args:       make(gorabbitmq.Table),
+						QueueOptions: &clarimq.QueueOptions{
+							Args:       make(clarimq.Table),
 							AutoDelete: true,
 							Declare:    true,
 						},
-						ExchangeOptions: &gorabbitmq.ExchangeOptions{
-							Args: make(gorabbitmq.Table),
-							Name: gorabbitmq.ExchangeDefault,
+						ExchangeOptions: &clarimq.ExchangeOptions{
+							Args: make(clarimq.Table),
+							Name: clarimq.ExchangeDefault,
 							Kind: amqp.ExchangeDirect,
 						},
-						Bindings:        []gorabbitmq.Binding{},
+						Bindings:        []clarimq.Binding{},
 						HandlerQuantity: 1,
 					},
 				),
@@ -877,14 +877,14 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
-		getConsumer func(*gorabbitmq.Connection, *testParams) (*gorabbitmq.Consumer, error)
-		action      func(*gorabbitmq.Connection, *testParams) error
+		getConsumer func(*clarimq.Connection, *testParams) (*clarimq.Consumer, error)
+		action      func(*clarimq.Connection, *testParams) error
 	}{
 		"remove queue": {
-			getConsumer: func(conn *gorabbitmq.Connection, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(conn, params.queueName, nil)
+			getConsumer: func(conn *clarimq.Connection, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(conn, params.queueName, nil)
 			},
-			action: func(conn *gorabbitmq.Connection, params *testParams) error {
+			action: func(conn *clarimq.Connection, params *testParams) error {
 				removedMessages, err := conn.RemoveQueue(params.queueName, false, false, false)
 				requireNoError(t, err)
 
@@ -894,19 +894,19 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 			},
 		},
 		"remove exchange": {
-			getConsumer: func(conn *gorabbitmq.Connection, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					nil,
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionDurable(true),
-					gorabbitmq.WithExchangeOptionKind(amqp.ExchangeDirect),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithQueueOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionDurable(true),
+					clarimq.WithExchangeOptionKind(amqp.ExchangeDirect),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithQueueOptionAutoDelete(true),
 				)
 			},
-			action: func(conn *gorabbitmq.Connection, params *testParams) error {
+			action: func(conn *clarimq.Connection, params *testParams) error {
 				err := conn.RemoveExchange(params.exchangeName, false, false)
 				requireNoError(t, err)
 
@@ -914,27 +914,27 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 			},
 		},
 		"remove binding": {
-			getConsumer: func(conn *gorabbitmq.Connection, params *testParams) (*gorabbitmq.Consumer, error) {
-				return gorabbitmq.NewConsumer(
+			getConsumer: func(conn *clarimq.Connection, params *testParams) (*clarimq.Consumer, error) {
+				return clarimq.NewConsumer(
 					conn,
 					params.queueName,
 					nil,
-					gorabbitmq.WithQueueOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionAutoDelete(true),
-					gorabbitmq.WithExchangeOptionDeclare(true),
-					gorabbitmq.WithExchangeOptionKind(amqp.ExchangeTopic),
-					gorabbitmq.WithExchangeOptionName(params.exchangeName),
-					gorabbitmq.WithConsumerOptionBinding(gorabbitmq.Binding{
+					clarimq.WithQueueOptionAutoDelete(true),
+					clarimq.WithExchangeOptionAutoDelete(true),
+					clarimq.WithExchangeOptionDeclare(true),
+					clarimq.WithExchangeOptionKind(amqp.ExchangeTopic),
+					clarimq.WithExchangeOptionName(params.exchangeName),
+					clarimq.WithConsumerOptionBinding(clarimq.Binding{
 						RoutingKey: params.routingKey,
-						BindingOptions: &gorabbitmq.BindingOptions{
-							Args:    gorabbitmq.Table{},
+						BindingOptions: &clarimq.BindingOptions{
+							Args:    clarimq.Table{},
 							NoWait:  false,
 							Declare: true,
 						},
 					}),
 				)
 			},
-			action: func(conn *gorabbitmq.Connection, params *testParams) error {
+			action: func(conn *clarimq.Connection, params *testParams) error {
 				err := conn.RemoveBinding(params.queueName, params.routingKey, params.exchangeName, nil)
 				requireNoError(t, err)
 
@@ -978,7 +978,7 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 
 	doneChan := make(chan struct{})
 
-	returnHandler := func(r gorabbitmq.Return) {
+	returnHandler := func(r clarimq.Return) {
 		requireEqual(t, message, string(r.Body))
 		requireEqual(t, "text/plain", r.ContentType)
 
@@ -987,9 +987,9 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 
 	publishConn := getConnection(
 		t,
-		gorabbitmq.WithConnectionOptionReturnHandler(returnHandler),
-		gorabbitmq.WithConnectionOptionTextLogging(os.Stdout, slog.LevelError),
-		gorabbitmq.WithConnectionOptionConnectionName(stringGen()),
+		clarimq.WithConnectionOptionReturnHandler(returnHandler),
+		clarimq.WithConnectionOptionTextLogging(os.Stdout, slog.LevelError),
+		clarimq.WithConnectionOptionConnectionName(stringGen()),
 	)
 
 	consumerConn := getConnection(t)
@@ -1006,23 +1006,23 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	queueName := stringGen()
 	routingKey := stringGen()
 
-	_, err := gorabbitmq.NewConsumer(
+	_, err := clarimq.NewConsumer(
 		consumerConn,
 		queueName,
 		nil,
-		gorabbitmq.WithExchangeOptionDeclare(true),
-		gorabbitmq.WithExchangeOptionKind(gorabbitmq.ExchangeTopic),
-		gorabbitmq.WithExchangeOptionName(exchangeName),
-		gorabbitmq.WithConsumerOptionRoutingKey(routingKey),
-		gorabbitmq.WithQueueOptionAutoDelete(true),
-		gorabbitmq.WithExchangeOptionAutoDelete(true),
+		clarimq.WithExchangeOptionDeclare(true),
+		clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+		clarimq.WithExchangeOptionName(exchangeName),
+		clarimq.WithConsumerOptionRoutingKey(routingKey),
+		clarimq.WithQueueOptionAutoDelete(true),
+		clarimq.WithExchangeOptionAutoDelete(true),
 	)
 	requireNoError(t, err)
 
-	publisher, err := gorabbitmq.NewPublisher(
+	publisher, err := clarimq.NewPublisher(
 		publishConn,
-		gorabbitmq.WithPublishOptionExchange(exchangeName),
-		gorabbitmq.WithPublishOptionMandatory(true),
+		clarimq.WithPublishOptionExchange(exchangeName),
+		clarimq.WithPublishOptionMandatory(true),
 	)
 	requireNoError(t, err)
 
@@ -1049,7 +1049,7 @@ func Test_Integration_DecodeDeliveryBody(t *testing.T) {
 	jsonMessage, err := json.Marshal(&message)
 	requireNoError(t, err)
 
-	delivery := gorabbitmq.Delivery{
+	delivery := clarimq.Delivery{
 		Delivery: amqp.Delivery{
 			ContentType: "application/json",
 			Timestamp:   time.Now(),
@@ -1058,7 +1058,7 @@ func Test_Integration_DecodeDeliveryBody(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		conn *gorabbitmq.Connection
+		conn *clarimq.Connection
 	}{
 		"with standard codec": {
 			conn: getConnection(t),
@@ -1066,8 +1066,8 @@ func Test_Integration_DecodeDeliveryBody(t *testing.T) {
 		"with self-defined codec": {
 			conn: getConnection(
 				t,
-				gorabbitmq.WithConnectionOptionEncoder(json.Marshal),
-				gorabbitmq.WithConnectionOptionDecoder(json.Unmarshal),
+				clarimq.WithConnectionOptionEncoder(json.Marshal),
+				clarimq.WithConnectionOptionDecoder(json.Unmarshal),
 			),
 		},
 	}
@@ -1097,7 +1097,7 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
-		conn *gorabbitmq.Connection
+		conn *clarimq.Connection
 	}{
 		"with provided connection": {
 			conn: getConnection(t),
@@ -1129,36 +1129,36 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 				requireNoError(t, err)
 			})
 
-			publisher, err := gorabbitmq.NewPublisher(publishConn,
-				gorabbitmq.WithPublishOptionExchange(exchangeName),
+			publisher, err := clarimq.NewPublisher(publishConn,
+				clarimq.WithPublishOptionExchange(exchangeName),
 			)
 			requireNoError(t, err)
 
 			doneChan := make(chan struct{})
 
-			handler := func(delivery *gorabbitmq.Delivery) gorabbitmq.Action {
+			handler := func(delivery *clarimq.Delivery) clarimq.Action {
 				requireEqual(t, testMessage, string(delivery.Body))
 
 				retryCount, _ := delivery.Headers["x-retry-count"].(int32)
 
 				if retryCount < 2 {
-					return gorabbitmq.NackDiscard
+					return clarimq.NackDiscard
 				}
 
 				doneChan <- struct{}{}
 
-				return gorabbitmq.Ack
+				return clarimq.Ack
 			}
 
-			consumer, err := gorabbitmq.NewConsumer(consumeConn, queueName, handler,
-				gorabbitmq.WithExchangeOptionDeclare(true),
-				gorabbitmq.WithExchangeOptionName(exchangeName),
-				gorabbitmq.WithExchangeOptionName(exchangeName),
-				gorabbitmq.WithExchangeOptionAutoDelete(true),
-				gorabbitmq.WithConsumerOptionRoutingKey(routingKey),
-				gorabbitmq.WithQueueOptionAutoDelete(true),
-				gorabbitmq.WithConsumerOptionDeadLetterRetry(
-					&gorabbitmq.RetryOptions{
+			consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+				clarimq.WithExchangeOptionDeclare(true),
+				clarimq.WithExchangeOptionName(exchangeName),
+				clarimq.WithExchangeOptionName(exchangeName),
+				clarimq.WithExchangeOptionAutoDelete(true),
+				clarimq.WithConsumerOptionRoutingKey(routingKey),
+				clarimq.WithQueueOptionAutoDelete(true),
+				clarimq.WithConsumerOptionDeadLetterRetry(
+					&clarimq.RetryOptions{
 						RetryConn: test.conn,
 						Delays: []time.Duration{
 							time.Second,
@@ -1253,11 +1253,11 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	// declaring the connections with JSON logging on debug level enabled.
 	// (later used to compare if the reconnection was successful).
 	publishConn := getConnection(t,
-		gorabbitmq.WithConnectionOptionJSONLogging(publishConnLogBuffer, slog.LevelDebug),
+		clarimq.WithConnectionOptionJSONLogging(publishConnLogBuffer, slog.LevelDebug),
 	)
 
 	consumeConn := getConnection(t,
-		gorabbitmq.WithConnectionOptionJSONLogging(consumeConnLogBuffer, slog.LevelDebug),
+		clarimq.WithConnectionOptionJSONLogging(consumeConnLogBuffer, slog.LevelDebug),
 	)
 
 	t.Cleanup(func() {
@@ -1271,27 +1271,27 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	// msgCounter is used to count the number of deliveries, to compare it afterwords.
 	var msgCounter int
 
-	handler := func(msg *gorabbitmq.Delivery) gorabbitmq.Action {
+	handler := func(msg *clarimq.Delivery) clarimq.Action {
 		requireEqual(t, message, string(msg.Body))
 
 		msgCounter++
 
 		doneChan <- struct{}{}
 
-		return gorabbitmq.Ack
+		return clarimq.Ack
 	}
 
 	queueName := stringGen()
 
 	// creating a consumer.
-	_, err := gorabbitmq.NewConsumer(consumeConn, queueName, handler,
-		gorabbitmq.WithQueueOptionDurable(true),
-		gorabbitmq.WithConsumerOptionConsumerName(stringGen()),
+	_, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+		clarimq.WithQueueOptionDurable(true),
+		clarimq.WithConsumerOptionConsumerName(stringGen()),
 	)
 	requireNoError(t, err)
 
 	// creating a publisher.
-	publisher, err := gorabbitmq.NewPublisher(publishConn)
+	publisher, err := clarimq.NewPublisher(publishConn)
 	requireNoError(t, err)
 
 	// publish a message.
@@ -1369,11 +1369,11 @@ func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) 
 
 	// declaring the connections with a maximum of 1 reconnection attempts.
 	publishConn := getConnection(t,
-		gorabbitmq.WithConnectionOptionMaxReconnectRetries(1),
+		clarimq.WithConnectionOptionMaxReconnectRetries(1),
 	)
 
 	consumeConn := getConnection(t,
-		gorabbitmq.WithConnectionOptionMaxReconnectRetries(1),
+		clarimq.WithConnectionOptionMaxReconnectRetries(1),
 	)
 
 	t.Cleanup(func() {
@@ -1387,27 +1387,27 @@ func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) 
 	// msgCounter is used to count the number of deliveries, to compare it afterwords.
 	var msgCounter int
 
-	handler := func(msg *gorabbitmq.Delivery) gorabbitmq.Action {
+	handler := func(msg *clarimq.Delivery) clarimq.Action {
 		requireEqual(t, message, string(msg.Body))
 
 		msgCounter++
 
 		doneChan <- struct{}{}
 
-		return gorabbitmq.Ack
+		return clarimq.Ack
 	}
 
 	queueName := stringGen()
 
 	// creating a consumer.
-	_, err := gorabbitmq.NewConsumer(consumeConn, queueName, handler,
-		gorabbitmq.WithQueueOptionDurable(true),
-		gorabbitmq.WithConsumerOptionConsumerName(stringGen()),
+	_, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+		clarimq.WithQueueOptionDurable(true),
+		clarimq.WithConsumerOptionConsumerName(stringGen()),
 	)
 	requireNoError(t, err)
 
 	// creating a publisher.
-	publisher, err := gorabbitmq.NewPublisher(publishConn)
+	publisher, err := clarimq.NewPublisher(publishConn)
 	requireNoError(t, err)
 
 	// publish a message.
@@ -1479,10 +1479,10 @@ func handleFailedRecovery(chn <-chan error, wg *sync.WaitGroup) {
 // ##### helper functions: ##########################
 
 // Returns a new connection with the given options.
-func getConnection(t *testing.T, options ...gorabbitmq.ConnectionOption) *gorabbitmq.Connection {
+func getConnection(t *testing.T, options ...clarimq.ConnectionOption) *clarimq.Connection {
 	t.Helper()
 
-	conn, err := gorabbitmq.NewConnection(gorabbitmq.SettingsToURI(&gorabbitmq.ConnectionSettings{
+	conn, err := clarimq.NewConnection(clarimq.SettingsToURI(&clarimq.ConnectionSettings{
 		UserName: "guest",
 		Password: "guest",
 		Host:     "localhost",

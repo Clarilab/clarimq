@@ -1,4 +1,4 @@
-package gorabbitmq
+package clarimq
 
 import (
 	amqp "github.com/rabbitmq/amqp091-go"

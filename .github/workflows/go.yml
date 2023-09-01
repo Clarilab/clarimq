@@ -5,9 +5,9 @@ name: Go
 
 on:
   push:
-    branches: [ "main", "V5" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main", "V5" ]
+    branches: [ "main" ]
   workflow_dispatch:
   
 env:

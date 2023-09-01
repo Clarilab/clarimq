@@ -1,4 +1,4 @@
-module github.com/Clarilab/gorabbitmq/v5
+module github.com/Clarilab/clarimq
 
 go 1.21
 

@@ -1,4 +1,4 @@
-package gorabbitmq
+package clarimq
 
 type (
 	// JSONEncoder returns the JSON encoding of v.
