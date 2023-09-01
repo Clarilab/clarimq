@@ -5,9 +5,9 @@ import (
 )
 
 const (
-	// TransientDelivery indicates that the messsage should be published as transient message.
+	// TransientDelivery indicates that the message should be published as transient message.
 	TransientDelivery DeliveryMode = iota + 1
-	// PersistentDelivery indicates that the messsage should be published as persistent message.
+	// PersistentDelivery indicates that the message should be published as persistent message.
 	PersistentDelivery
 )
 

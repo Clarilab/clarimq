@@ -10,7 +10,9 @@ type (
 	// Binding describes the binding of a queue to a routing key to an exchange.
 	Binding struct {
 		*BindingOptions
-		RoutingKey string
+		RoutingKey   string
+		QueueName    string
+		ExchangeName string
 	}
 
 	// BindingOptions describes the options a binding can have.
@@ -24,6 +26,22 @@ type (
 	}
 )
 
+func (b *Binding) queueNameOr(defaultName string) string {
+	if b.QueueName != "" {
+		return b.QueueName
+	}
+
+	return defaultName
+}
+
+func (b *Binding) exchangeNameOr(defaultName string) string {
+	if b.ExchangeName != "" {
+		return b.ExchangeName
+	}
+
+	return defaultName
+}
+
 func defaultBindingOptions() *BindingOptions {
 	return &BindingOptions{
 		Args:    make(Table),
@@ -32,18 +50,18 @@ func defaultBindingOptions() *BindingOptions {
 	}
 }
 
-func declareBindings(channel *amqp.Channel, options *ConsumeOptions) error {
+func declareBindings(channel *amqp.Channel, queueName, exchangeName string, bindings []Binding) error {
 	const errMessage = "failed to declare binding: %w"
 
-	for _, binding := range options.Bindings {
+	for _, binding := range bindings {
 		if !binding.Declare {
 			continue
 		}
 
 		err := channel.QueueBind(
-			options.QueueOptions.name,
+			binding.queueNameOr(queueName),
 			binding.RoutingKey,
-			options.ExchangeOptions.Name,
+			binding.exchangeNameOr(exchangeName),
 			binding.NoWait,
 			amqp.Table(binding.Args),
 		)

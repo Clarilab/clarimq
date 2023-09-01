@@ -38,7 +38,7 @@ func NewPublisher(conn *Connection, options ...PublishOption) (*Publisher, error
 	publisher := &Publisher{
 		conn:    conn,
 		options: opt,
-		encoder: conn.options.Codec.Encoder,
+		encoder: conn.options.codec.Encoder,
 	}
 
 	return publisher, nil

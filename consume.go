@@ -7,7 +7,6 @@ import (
 )
 
 type (
-
 	// Consumer is a consumer for AMQP messages.
 	Consumer struct {
 		conn    *Connection
@@ -23,7 +22,7 @@ type (
 	}
 
 	// HandlerFunc defines the handler of each Delivery and return Action.
-	HandlerFunc func(d Delivery) Action
+	HandlerFunc func(d *Delivery) Action
 )
 
 // NewConsumer creates a new Consumer instance. Options can be passed to customize the behavior of the Consumer.
@@ -60,25 +59,23 @@ func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, option
 }
 
 // Close stops consuming messages from the subscribed queue.
+//
+// When using the dead letter retry with enabled cleanup, the consumer must be closed
+// to perform the cleanup.
 func (c *Consumer) Close() error {
 	const errMessage = "failed to unsubscribe consumer: %w"
+
+	if c.options.RetryOptions != nil && c.options.RetryOptions.Cleanup {
+		if err := c.cleanupDeadLetterRetry(); err != nil {
+			return fmt.Errorf(errMessage, err)
+		}
+	}
 
 	if err := c.conn.amqpChannel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
 	c.conn.runningConsumers--
-
-	return nil
-}
-
-// DecodeDeliveryBody can be used to decode the body of a delivery into v.
-func (c *Consumer) DecodeDeliveryBody(delivery Delivery, v any) error {
-	const errMessage = "failed to decode delivery body: %w"
-
-	if err := c.conn.options.Codec.Decoder(delivery.Body, v); err != nil {
-		return fmt.Errorf(errMessage, err)
-	}
 
 	return nil
 }
@@ -96,9 +93,16 @@ func (c *Consumer) startConsuming() error {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	err = declareBindings(c.conn.amqpChannel, c.options)
+	err = declareBindings(c.conn.amqpChannel, c.options.QueueOptions.name, c.options.ExchangeOptions.Name, c.options.Bindings)
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
+	}
+
+	if c.options.RetryOptions != nil {
+		err = c.setupDeadLetterRetry()
+		if err != nil {
+			return fmt.Errorf(errMessage, err)
+		}
 	}
 
 	deliveries, err := c.conn.amqpChannel.Consume(
@@ -115,7 +119,7 @@ func (c *Consumer) startConsuming() error {
 	}
 
 	for i := 0; i < c.options.HandlerQuantity; i++ {
-		go c.handlerRoutine(deliveries, c.options, c.handler)
+		go c.handlerRoutine(deliveries)
 	}
 
 	c.conn.logger.logDebug(fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
@@ -123,35 +127,37 @@ func (c *Consumer) startConsuming() error {
 	return nil
 }
 
-func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery, consumeOptions *ConsumeOptions, handler HandlerFunc) {
-	for msg := range deliveries {
+func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery) {
+	for delivery := range deliveries {
+		delivery := &Delivery{delivery}
+
 		if c.conn.amqpChannel.IsClosed() {
 			c.conn.logger.logDebug("message handler stopped: channel is closed")
 
 			break
 		}
 
-		if consumeOptions.ConsumerOptions.AutoAck {
-			handler(Delivery{msg})
+		if c.options.ConsumerOptions.AutoAck {
+			c.handler(delivery)
 
 			continue
 		}
 
-		switch handler(Delivery{msg}) {
+		switch c.handleMessage(delivery) {
 		case Ack:
-			err := msg.Ack(false)
+			err := delivery.Ack(false)
 			if err != nil {
 				c.conn.logger.logError("could not ack message: %v", err)
 			}
 
 		case NackDiscard:
-			err := msg.Nack(false, false)
+			err := delivery.Nack(false, false)
 			if err != nil {
 				c.conn.logger.logError("could not nack message: %v", err)
 			}
 
 		case NackRequeue:
-			err := msg.Nack(false, true)
+			err := delivery.Nack(false, true)
 			if err != nil {
 				c.conn.logger.logError("could not nack message: %v", err)
 			}
@@ -160,6 +166,21 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery, consumeOption
 			continue
 		}
 	}
+}
+
+func (c *Consumer) handleMessage(delivery *Delivery) Action {
+	var err error
+
+	action := c.handler(delivery)
+
+	if action == NackDiscard && c.options.RetryOptions != nil {
+		action, err = c.handleDeadLetterMessage(delivery)
+		if err != nil {
+			c.conn.logger.logError("could not handle dead letter message: %v", err)
+		}
+	}
+
+	return action
 }
 
 func (c *Consumer) watchRecoverConsumerChan() {

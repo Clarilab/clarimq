@@ -12,7 +12,7 @@ import (
 const (
 	defaultReconnectInterval   time.Duration = time.Second
 	defaultMaxReconnectRetries int           = 10
-	defaultBackoffFactor       int           = 2
+	defaultBackOffFactor       int           = 2
 	defaultPrefetchCount       int           = 0
 )
 
@@ -29,12 +29,12 @@ type (
 		ReturnHandler
 		logger              []*slog.Logger
 		Config              *Config
-		Codec               *codec
+		codec               *codec
 		uri                 string
 		PrefetchCount       int
 		ReconnectInterval   time.Duration
 		MaxReconnectRetries int
-		BackoffFactor       int
+		BackOffFactor       int
 	}
 
 	// ConnectionSettings holds settings for a RabbitMQ connection.
@@ -57,12 +57,12 @@ func defaultConnectionOptions(uri string) *ConnectionOptions {
 		uri:                 uri,
 		ReconnectInterval:   defaultReconnectInterval,
 		MaxReconnectRetries: defaultMaxReconnectRetries,
-		BackoffFactor:       defaultBackoffFactor,
+		BackOffFactor:       defaultBackOffFactor,
 		Config: &Config{
 			Properties: make(amqp.Table),
 		},
 		PrefetchCount: defaultPrefetchCount,
-		Codec: &codec{
+		codec: &codec{
 			Encoder: json.Marshal,
 			Decoder: json.Unmarshal,
 		},
@@ -136,12 +136,12 @@ func WithConnectionOptionPrefetchCount(count int) ConnectionOption {
 
 // WithConnectionOptionEncoder sets the encoder that will be used to encode messages.
 func WithConnectionOptionEncoder(encoder JSONEncoder) ConnectionOption {
-	return func(options *ConnectionOptions) { options.Codec.Encoder = encoder }
+	return func(options *ConnectionOptions) { options.codec.Encoder = encoder }
 }
 
 // WithConnectionOptionDecoder sets the decoder that will be used to decode messages.
 func WithConnectionOptionDecoder(decoder JSONDecoder) ConnectionOption {
-	return func(options *ConnectionOptions) { options.Codec.Decoder = decoder }
+	return func(options *ConnectionOptions) { options.codec.Decoder = decoder }
 }
 
 // WithConnectionOptionReturnHandler sets an Handler that can be used to handle undeliverable publishes.
@@ -166,9 +166,9 @@ func WithConnectionOptionMaxReconnectRetries(maxRetries int) ConnectionOption {
 	return func(options *ConnectionOptions) { options.MaxReconnectRetries = maxRetries }
 }
 
-// WithConnectionOptionBackoffFactor sets the exponential backoff factor.
+// WithConnectionOptionBackOffFactor sets the exponential back-off factor.
 //
 // Default: 2.
-func WithConnectionOptionBackoffFactor(factor int) ConnectionOption {
-	return func(options *ConnectionOptions) { options.BackoffFactor = factor }
+func WithConnectionOptionBackOffFactor(factor int) ConnectionOption {
+	return func(options *ConnectionOptions) { options.BackOffFactor = factor }
 }

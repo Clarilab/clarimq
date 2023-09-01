@@ -2,6 +2,7 @@ package gorabbitmq
 
 import (
 	"fmt"
+	"time"
 )
 
 const (
@@ -11,6 +12,14 @@ const (
 	quorum             string = "quorum"
 	maxPriorityKey     string = "x-max-priority"
 	queueTypeKey       string = "x-queue-type"
+
+	defaultDLXDelay1s  time.Duration = time.Second
+	defaultDLXDelay10s time.Duration = 10 * time.Second
+	defaultDLXDelay1m  time.Duration = time.Minute
+	defaultDLXDelay10m time.Duration = 10 * time.Minute
+	defaultDLXDelay1h  time.Duration = time.Hour
+
+	defaultMaxRetries int64 = 10
 )
 
 type (
@@ -21,9 +30,28 @@ type (
 		ConsumerOptions *ConsumerOptions
 		QueueOptions    *QueueOptions
 		ExchangeOptions *ExchangeOptions
+		RetryOptions    *RetryOptions
 		Bindings        []Binding
 		// The number of message handlers, that will run concurrently.
 		HandlerQuantity int
+	}
+
+	// RetryOptions are used to describe how the retry will be configured.
+	RetryOptions struct {
+		// Is used to handle the retries on a separate connection.
+		// If not specified, a connection will be created.
+		RetryConn *Connection
+		// The delays which a message will be exponentially redelivered with.
+		Delays []time.Duration
+		// The maximum number of times a message will be redelivered.
+		MaxRetries int64
+		// When enabled all retry related queues and exchanges associated when the consumer gets closed.
+		//
+		// Warning: Exiting messages on the retry queues will be purged.
+		Cleanup     bool
+		publisher   *Publisher
+		dlxName     string
+		dlqNameBase string
 	}
 
 	// ConsumerOptions are used to configure the consumer
@@ -258,6 +286,33 @@ func WithConsumerOptionConsumerName(consumerName string) ConsumeOption {
 	}
 }
 
+// WithConsumerOptionDeadLetterRetry enables the dead letter retry.
+//
+// For each `delay` a dead letter queue will be declared.
+//
+// After exceeding `maxRetries` the delivery will be dropped.
+func WithConsumerOptionDeadLetterRetry(options *RetryOptions) ConsumeOption {
+	return func(opt *ConsumeOptions) {
+		if options != nil {
+			if len(options.Delays) == 0 {
+				options.Delays = []time.Duration{
+					defaultDLXDelay1s,
+					defaultDLXDelay10s,
+					defaultDLXDelay1m,
+					defaultDLXDelay10m,
+					defaultDLXDelay1h,
+				}
+			}
+
+			if options.MaxRetries <= 0 {
+				options.MaxRetries = defaultMaxRetries
+			}
+
+			opt.RetryOptions = options
+		}
+	}
+}
+
 // WithConsumerOptionConsumerAutoAck sets the auto acknowledge property on the server of this consumer.
 //
 // Default: false.
@@ -275,7 +330,7 @@ func WithConsumerOptionConsumerExclusive(exclusive bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ConsumerOptions.Exclusive = exclusive }
 }
 
-// WithConsumerOptionNoWait sets the exclusive nowait property of this consumer, which means
+// WithConsumerOptionNoWait sets the exclusive no-wait property of this consumer, which means
 // it does not wait for the server to confirm the request and
 // immediately begin deliveries. If it is not possible to consume, a channel
 // exception will be raised and the channel will be closed.

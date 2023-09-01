@@ -39,20 +39,11 @@ type Connection struct {
 
 // NewConnection creates a new connection.
 //
-// Needs to be closed with the Close() method.
-func NewConnection(settings *ConnectionSettings, options ...ConnectionOption) (*Connection, error) {
+// Must be closed with the Close() method to conserve resources!
+func NewConnection(uri string, options ...ConnectionOption) (*Connection, error) {
 	const errMessage = "failed to create connection %w"
 
-	opt := defaultConnectionOptions(
-		fmt.Sprintf("amqp://%s:%s@%s/",
-			url.QueryEscape(settings.UserName),
-			url.QueryEscape(settings.Password),
-			net.JoinHostPort(
-				url.QueryEscape(settings.Host),
-				strconv.Itoa(settings.Port),
-			),
-		),
-	)
+	opt := defaultConnectionOptions(uri)
 
 	for i := 0; i < len(options); i++ {
 		options[i](opt)
@@ -76,6 +67,18 @@ func NewConnection(settings *ConnectionSettings, options ...ConnectionOption) (*
 	return conn, nil
 }
 
+// SettingsToURI can be used to convert a ConnectionSettings struct to a valid AMQP URI to ensure correct escaping.
+func SettingsToURI(settings *ConnectionSettings) string {
+	return fmt.Sprintf("amqp://%s:%s@%s/",
+		url.QueryEscape(settings.UserName),
+		url.QueryEscape(settings.Password),
+		net.JoinHostPort(
+			url.QueryEscape(settings.Host),
+			strconv.Itoa(settings.Port),
+		),
+	)
+}
+
 // Close gracefully closes the connection to the server.
 func (c *Connection) Close() error {
 	const errMessage = "failed to close connection to rabbitmq gracefully: %w"
@@ -96,28 +99,22 @@ func (c *Connection) Close() error {
 		close(c.startRecoveryChan)
 		close(c.recoveryFailedChan)
 		close(c.consumerRecoveryChan)
-	}
 
-	c.logger.logInfo("gracefully closed connection to rabbitmq")
+		c.logger.logInfo("gracefully closed connection to rabbitmq")
+	}
 
 	return nil
 }
 
-// NotifyRecoveryFail returns a channel that will return an error when
-// the recovery has exeeded the maximum number of retries.
-func (c *Connection) NotifyRecoveryFail() (<-chan error, error) {
-	return c.recoveryFailedChan, nil
+// NotifyAutoRecoveryFail returns a channel that will return an error when
+// the recovery has exceeded the maximum number of retries.
+func (c *Connection) NotifyAutoRecoveryFail() <-chan error {
+	return c.recoveryFailedChan
 }
 
-// Reconnect can be used to manually reconnect to a RabbitMQ.
-//
-// Returns an error if the current connection persists.
+// Reconnect can be used to manually reconnect to RabbitMQ.
 func (c *Connection) Reconnect() error {
 	const errMessage = "failed to reconnect to rabbitmq: %w"
-
-	if c.amqpConnection != nil && !c.amqpConnection.IsClosed() {
-		return fmt.Errorf(errMessage, ErrHealthyConnection)
-	}
 
 	err := c.startRecovery()
 	if err != nil {
@@ -160,7 +157,7 @@ func (c *Connection) RemoveBinding(queueName string, routingKey string, exchange
 	return nil
 }
 
-// ExchangeDelete removes the named exchange from the server. When an exchange is deleted all queue bindings
+// RemoveExchange removes the named exchange from the server. When an exchange is deleted all queue bindings
 // on the exchange are also deleted. If this exchange does not exist, the channel will be closed with an error.
 //
 // When ifUnused is true, the server will only delete the exchange if it has no queue bindings.
@@ -174,6 +171,17 @@ func (c *Connection) RemoveExchange(name string, ifUnused bool, noWait bool) err
 
 	err := c.amqpChannel.ExchangeDelete(name, ifUnused, noWait)
 	if err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	return nil
+}
+
+// DecodeDeliveryBody can be used to decode the body of a delivery into v.
+func (c *Connection) DecodeDeliveryBody(delivery Delivery, v any) error {
+	const errMessage = "failed to decode delivery body: %w"
+
+	if err := c.options.codec.Decoder(delivery.Body, v); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -327,7 +335,10 @@ func (c *Connection) watchRecoveryChan() {
 func (c *Connection) startRecovery() error {
 	const errMessage = "recovery failed: %w"
 
-	err := c.backoff(
+	c.amqpConnection = nil
+	c.amqpChannel = nil
+
+	err := c.backOff(
 		func() error {
 			err := c.createConnection()
 			if err != nil {
@@ -343,9 +354,6 @@ func (c *Connection) startRecovery() error {
 		},
 	)
 	if err != nil {
-		c.amqpConnection = nil
-		c.amqpChannel = nil
-
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -376,8 +384,8 @@ func (c *Connection) recoverConsumer() error {
 	return nil
 }
 
-func (c *Connection) backoff(action func() error) error {
-	const errMessage = "backoff failed %w"
+func (c *Connection) backOff(action func() error) error {
+	const errMessage = "back-off failed %w"
 
 	retry := 0
 
@@ -394,9 +402,9 @@ func (c *Connection) backoff(action func() error) error {
 			return fmt.Errorf(errMessage, ErrMaxRetriesExceeded)
 		}
 
-		delay := time.Duration(c.options.BackoffFactor*retry) * c.options.ReconnectInterval
+		delay := time.Duration(c.options.BackOffFactor*retry) * c.options.ReconnectInterval
 
-		c.logger.logDebug("failed to reconnect: backing off...", "backoff-time", delay.String())
+		c.logger.logDebug("failed to reconnect: backing off...", "back-off-time", delay.String())
 
 		time.Sleep(delay)
 
