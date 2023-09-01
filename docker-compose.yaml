@@ -1,0 +1,12 @@
+version: "3.4"
+services:
+  rabbitmq:
+      container_name: rabbitmq
+      image: 'rabbitmq:3.12.2-alpine'
+      ports:
+        - "5672:5672"
+      healthcheck:
+        test: rabbitmq-diagnostics -q ping
+        interval: 5s
+        timeout: 10s
+        retries: 5
