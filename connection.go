@@ -32,7 +32,7 @@ type Connection struct {
 
 	runningConsumers int
 
-	logger *log
+	logger *logger
 
 	returnHandler ReturnHandler
 }
@@ -54,7 +54,7 @@ func NewConnection(uri string, options ...ConnectionOption) (*Connection, error)
 		startRecoveryChan:    make(chan struct{}),
 		recoveryFailedChan:   make(chan error, reconnectFailChanSize),
 		consumerRecoveryChan: make(chan error),
-		logger:               newLogger(opt.logger),
+		logger:               newLogger(opt.loggers),
 		returnHandler:        opt.ReturnHandler,
 		options:              opt,
 	}

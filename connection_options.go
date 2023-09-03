@@ -27,7 +27,7 @@ type (
 	// ConnectionOptions are used to describe how a new connection will be created.
 	ConnectionOptions struct {
 		ReturnHandler
-		logger              []*slog.Logger
+		loggers             []*slog.Logger
 		Config              *Config
 		codec               *codec
 		uri                 string
@@ -97,7 +97,7 @@ func WithConnectionOptionConnectionName(name string) ConnectionOption {
 // WithConnectionOptionTextLogging enables structured text logging to the given writer.
 func WithConnectionOptionTextLogging(w io.Writer, logLevel slog.Level) ConnectionOption {
 	return func(o *ConnectionOptions) {
-		o.logger = append(o.logger,
+		o.loggers = append(o.loggers,
 			slog.New(slog.NewTextHandler(
 				w,
 				&slog.HandlerOptions{
@@ -111,7 +111,7 @@ func WithConnectionOptionTextLogging(w io.Writer, logLevel slog.Level) Connectio
 // WithConnectionOptionJSONLogging enables structured json logging to the given writer.
 func WithConnectionOptionJSONLogging(w io.Writer, logLevel slog.Level) ConnectionOption {
 	return func(o *ConnectionOptions) {
-		o.logger = append(o.logger,
+		o.loggers = append(o.loggers,
 			slog.New(slog.NewJSONHandler(
 				w,
 				&slog.HandlerOptions{
