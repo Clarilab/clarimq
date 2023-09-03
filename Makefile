@@ -9,8 +9,6 @@ lint:
 vuln:
 	govulncheck ./...
 
-test_all: test test_integration
-
 test:
 	go test -skip "(Test_Integration|Test_Reconnection)" -vet=off -failfast -race -coverprofile=coverage.out
 
