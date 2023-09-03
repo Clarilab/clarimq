@@ -122,6 +122,13 @@ func WithConnectionOptionJSONLogging(w io.Writer, logLevel slog.Level) Connectio
 	}
 }
 
+// WithConnectionOptionMultipleLoggers adds multiple loggers.
+func WithConnectionOptionMultipleLoggers(loggers []*slog.Logger) ConnectionOption {
+	return func(o *ConnectionOptions) {
+		o.loggers = append(o.loggers, loggers...)
+	}
+}
+
 // WithConnectionOptionAMQPConfig sets the amqp.Config that will be used to create the connection.
 //
 // Warning: this will override any values set in the connection config.
