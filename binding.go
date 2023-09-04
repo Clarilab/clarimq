@@ -26,20 +26,20 @@ type (
 	}
 )
 
-func (b *Binding) queueNameOr(defaultName string) string {
+func (b *Binding) defaultQueueNameOr(name string) string {
 	if b.QueueName != "" {
 		return b.QueueName
 	}
 
-	return defaultName
+	return name
 }
 
-func (b *Binding) exchangeNameOr(defaultName string) string {
+func (b *Binding) defaultExchangeNameOr(name string) string {
 	if b.ExchangeName != "" {
 		return b.ExchangeName
 	}
 
-	return defaultName
+	return name
 }
 
 func defaultBindingOptions() *BindingOptions {
@@ -59,9 +59,9 @@ func declareBindings(channel *amqp.Channel, queueName, exchangeName string, bind
 		}
 
 		err := channel.QueueBind(
-			binding.queueNameOr(queueName),
+			binding.defaultQueueNameOr(queueName),
 			binding.RoutingKey,
-			binding.exchangeNameOr(exchangeName),
+			binding.defaultExchangeNameOr(exchangeName),
 			binding.NoWait,
 			amqp.Table(binding.Args),
 		)

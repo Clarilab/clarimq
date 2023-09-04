@@ -4,34 +4,34 @@ import (
 	"log/slog"
 )
 
-type log struct {
-	logger []*slog.Logger
+type logger struct {
+	loggers []*slog.Logger
 }
 
-func newLogger(logger []*slog.Logger) *log {
-	return &log{logger}
+func newLogger(loggers []*slog.Logger) *logger {
+	return &logger{loggers}
 }
 
-func (l *log) logDebug(msg string, args ...any) {
-	for i := range l.logger {
-		l.logger[i].Debug(msg, args...)
+func (l *logger) logDebug(msg string, args ...any) {
+	for i := range l.loggers {
+		l.loggers[i].Debug(msg, args...)
 	}
 }
 
-func (l *log) logError(msg string, args ...any) {
-	for i := range l.logger {
-		l.logger[i].Error(msg, args...)
+func (l *logger) logError(msg string, args ...any) {
+	for i := range l.loggers {
+		l.loggers[i].Error(msg, args...)
 	}
 }
 
-func (l *log) logInfo(msg string, args ...any) {
-	for i := range l.logger {
-		l.logger[i].Info(msg, args...)
+func (l *logger) logInfo(msg string, args ...any) {
+	for i := range l.loggers {
+		l.loggers[i].Info(msg, args...)
 	}
 }
 
-func (l *log) logWarn(msg string, args ...any) {
-	for i := range l.logger {
-		l.logger[i].Warn(msg, args...)
+func (l *logger) logWarn(msg string, args ...any) {
+	for i := range l.loggers {
+		l.loggers[i].Warn(msg, args...)
 	}
 }

@@ -924,7 +924,7 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 					clarimq.WithExchangeOptionDeclare(true),
 					clarimq.WithExchangeOptionKind(amqp.ExchangeTopic),
 					clarimq.WithExchangeOptionName(params.exchangeName),
-					clarimq.WithConsumerOptionBinding(clarimq.Binding{
+					clarimq.WithBindingOptionCustomBinding(clarimq.Binding{
 						RoutingKey: params.routingKey,
 						BindingOptions: &clarimq.BindingOptions{
 							Args:    clarimq.Table{},

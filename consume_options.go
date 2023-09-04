@@ -191,6 +191,19 @@ func WithQueueOptionArgs(args Table) ConsumeOption {
 	}
 }
 
+// WithQueueOptionQuorum sets the queue quorum type, which means
+// multiple nodes in the cluster will have the messages distributed amongst them
+// for higher reliability.
+func WithQueueOptionQuorum() ConsumeOption {
+	return func(options *ConsumeOptions) {
+		if options.QueueOptions.Args == nil {
+			options.QueueOptions.Args = make(Table)
+		}
+
+		options.QueueOptions.Args[queueTypeKey] = quorum
+	}
+}
+
 // WithExchangeOptionName sets the exchange name.
 func WithExchangeOptionName(name string) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ExchangeOptions.Name = name }
@@ -253,6 +266,15 @@ func WithExchangeOptionArgs(args Table) ConsumeOption {
 	}
 }
 
+// WithBindingOptionCustomBinding adds a new binding to the queue which allows you to set the binding options
+// on a per-binding basis. Keep in mind that everything in the BindingOptions struct will default to
+// the zero value. If you want to declare your bindings for example, be sure to set Declare=true.
+func WithBindingOptionCustomBinding(binding Binding) ConsumeOption {
+	return func(options *ConsumeOptions) {
+		options.Bindings = append(options.Bindings, binding)
+	}
+}
+
 // WithConsumerOptionRoutingKey binds the queue to a routing key with the default binding options.
 func WithConsumerOptionRoutingKey(routingKey string) ConsumeOption {
 	return func(options *ConsumeOptions) {
@@ -260,15 +282,6 @@ func WithConsumerOptionRoutingKey(routingKey string) ConsumeOption {
 			RoutingKey:     routingKey,
 			BindingOptions: defaultBindingOptions(),
 		})
-	}
-}
-
-// WithConsumerOptionBinding adds a new binding to the queue which allows you to set the binding options
-// on a per-binding basis. Keep in mind that everything in the BindingOptions struct will default to
-// the zero value. If you want to declare your bindings for example, be sure to set Declare=true.
-func WithConsumerOptionBinding(binding Binding) ConsumeOption {
-	return func(options *ConsumeOptions) {
-		options.Bindings = append(options.Bindings, binding)
 	}
 }
 
@@ -340,15 +353,4 @@ func WithConsumerOptionConsumerExclusive(exclusive bool) ConsumeOption {
 // Default: false.
 func WithConsumerOptionNoWait(noWait bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ConsumerOptions.NoWait = noWait }
-}
-
-// WithConsumerOptionQueueQuorum sets the queue a quorum type, which means
-// multiple nodes in the cluster will have the messages distributed amongst them
-// for higher reliability.
-func WithConsumerOptionQueueQuorum(options *ConsumeOptions) {
-	if options.QueueOptions.Args == nil {
-		options.QueueOptions.Args = make(Table)
-	}
-
-	options.QueueOptions.Args[queueTypeKey] = quorum
 }

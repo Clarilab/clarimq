@@ -35,7 +35,7 @@ func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, option
 
 	opt := defaultConsumerOptions()
 
-	for i := 0; i < len(options); i++ {
+	for i := range options {
 		options[i](opt)
 	}
 
@@ -86,24 +86,17 @@ func (c *Consumer) Close() error {
 func (c *Consumer) startConsuming() error {
 	const errMessage = "failed to start consuming: %w"
 
-	err := declareExchange(c.conn.amqpChannel, c.options.ExchangeOptions)
-	if err != nil {
-		return fmt.Errorf(errMessage, err)
-	}
-
-	err = declareQueue(c.conn.amqpChannel, c.options.QueueOptions)
-	if err != nil {
-		return fmt.Errorf(errMessage, err)
-	}
-
-	err = declareBindings(c.conn.amqpChannel, c.options.QueueOptions.name, c.options.ExchangeOptions.Name, c.options.Bindings)
-	if err != nil {
+	if err := handleDeclarations(
+		c.conn.amqpChannel,
+		c.options.ExchangeOptions,
+		c.options.QueueOptions,
+		c.options.Bindings,
+	); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
 	if c.options.RetryOptions != nil {
-		err = c.setupDeadLetterRetry()
-		if err != nil {
+		if err := c.setupDeadLetterRetry(); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 	}
@@ -126,6 +119,24 @@ func (c *Consumer) startConsuming() error {
 	}
 
 	c.conn.logger.logDebug(fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
+
+	return nil
+}
+
+func handleDeclarations(channel *amqp.Channel, exchangeOptions *ExchangeOptions, queueOptions *QueueOptions, bindings []Binding) error {
+	const errMessage = "failed to handle declarations: %w"
+
+	if err := declareExchange(channel, exchangeOptions); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	if err := declareQueue(channel, queueOptions); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	if err := declareBindings(channel, queueOptions.name, exchangeOptions.Name, bindings); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
 
 	return nil
 }

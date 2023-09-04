@@ -31,7 +31,7 @@ func NewPublisher(conn *Connection, options ...PublishOption) (*Publisher, error
 
 	opt := defaultPublishOptions()
 
-	for i := 0; i < len(options); i++ {
+	for i := range options {
 		options[i](opt)
 	}
 

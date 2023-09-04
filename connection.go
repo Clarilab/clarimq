@@ -2,7 +2,6 @@ package clarimq
 
 import (
 	"fmt"
-	"log/slog"
 	"net"
 	"net/url"
 	"strconv"
@@ -25,14 +24,12 @@ type Connection struct {
 
 	connectionCloseWG *sync.WaitGroup
 
-	startRecoveryChan  chan struct{}
-	recoveryFailedChan chan error
-
+	recoveryFailedChan   chan error
 	consumerRecoveryChan chan error
 
 	runningConsumers int
 
-	logger *log
+	logger *logger
 
 	returnHandler ReturnHandler
 }
@@ -51,10 +48,9 @@ func NewConnection(uri string, options ...ConnectionOption) (*Connection, error)
 
 	conn := &Connection{
 		connectionCloseWG:    &sync.WaitGroup{},
-		startRecoveryChan:    make(chan struct{}),
 		recoveryFailedChan:   make(chan error, reconnectFailChanSize),
 		consumerRecoveryChan: make(chan error),
-		logger:               newLogger(opt.logger),
+		logger:               newLogger(opt.loggers),
 		returnHandler:        opt.ReturnHandler,
 		options:              opt,
 	}
@@ -96,7 +92,6 @@ func (c *Connection) Close() error {
 
 		c.connectionCloseWG.Wait()
 
-		close(c.startRecoveryChan)
 		close(c.recoveryFailedChan)
 		close(c.consumerRecoveryChan)
 
@@ -116,8 +111,7 @@ func (c *Connection) NotifyAutoRecoveryFail() <-chan error {
 func (c *Connection) Reconnect() error {
 	const errMessage = "failed to reconnect to rabbitmq: %w"
 
-	err := c.startRecovery()
-	if err != nil {
+	if err := c.recoverConnection(); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -135,12 +129,12 @@ func (c *Connection) Reconnect() error {
 func (c *Connection) RemoveQueue(name string, ifUnused bool, ifEmpty bool, noWait bool) (int, error) {
 	const errMessage = "failed to remove queue: %w"
 
-	removedMessages, err := c.amqpChannel.QueueDelete(name, ifUnused, ifEmpty, noWait)
+	purgedMessages, err := c.amqpChannel.QueueDelete(name, ifUnused, ifEmpty, noWait)
 	if err != nil {
 		return 0, fmt.Errorf(errMessage, err)
 	}
 
-	return removedMessages, nil
+	return purgedMessages, nil
 }
 
 // RemoveBinding removes a binding between an exchange and queue matching the key and arguments.
@@ -149,8 +143,7 @@ func (c *Connection) RemoveQueue(name string, ifUnused bool, ifEmpty bool, noWai
 func (c *Connection) RemoveBinding(queueName string, routingKey string, exchangeName string, args Table) error {
 	const errMessage = "failed to remove binding: %w"
 
-	err := c.amqpChannel.QueueUnbind(queueName, routingKey, exchangeName, amqp.Table(args))
-	if err != nil {
+	if err := c.amqpChannel.QueueUnbind(queueName, routingKey, exchangeName, amqp.Table(args)); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -169,8 +162,7 @@ func (c *Connection) RemoveBinding(queueName string, routingKey string, exchange
 func (c *Connection) RemoveExchange(name string, ifUnused bool, noWait bool) error {
 	const errMessage = "failed to remove exchange: %w"
 
-	err := c.amqpChannel.ExchangeDelete(name, ifUnused, noWait)
-	if err != nil {
+	if err := c.amqpChannel.ExchangeDelete(name, ifUnused, noWait); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -192,17 +184,13 @@ func (c *Connection) connect() error {
 	const errMessage = "failed to connect to rabbitmq: %w"
 
 	if c.amqpConnection == nil {
-		err := c.createConnection()
-		if err != nil {
+		if err := c.createConnection(); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
-		err = c.createChannel()
-		if err != nil {
+		if err := c.createChannel(); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
-
-		c.watchRecoveryChan()
 	}
 
 	return nil
@@ -253,17 +241,7 @@ func (c *Connection) watchConnectionNotifications() {
 		for {
 			select {
 			case err := <-closeChan:
-				if err == nil {
-					slog.Debug("closed connection")
-
-					c.connectionCloseWG.Done()
-
-					return
-				}
-
-				c.logger.logDebug("connection unexpectedly closed", "cause", err)
-
-				c.startRecoveryChan <- struct{}{}
+				c.handleClosedConnection(err)
 
 				return
 
@@ -283,15 +261,7 @@ func (c *Connection) watchChannelNotifications() {
 		for {
 			select {
 			case err := <-closeChan:
-				if err == nil {
-					slog.Debug("closed channel")
-
-					c.connectionCloseWG.Done()
-
-					return
-				}
-
-				c.logger.logDebug("channel unexpectedly closed", "cause", err)
+				c.handleClosedChannel(err)
 
 				return
 
@@ -319,52 +289,80 @@ func (c *Connection) watchChannelNotifications() {
 	}()
 }
 
-func (c *Connection) watchRecoveryChan() {
-	go func() {
-		for range c.startRecoveryChan {
-			err := c.startRecovery()
-			if err != nil {
-				c.recoveryFailedChan <- err
+func (c *Connection) handleClosedConnection(err *amqp.Error) {
+	if err == nil {
+		c.logger.logDebug("connection gracefully closed")
 
-				return
-			}
-		}
-	}()
+		c.connectionCloseWG.Done()
+
+		return
+	}
+
+	if err := c.recoverConnection(); err != nil {
+		c.recoveryFailedChan <- err
+	}
 }
 
-func (c *Connection) startRecovery() error {
-	const errMessage = "recovery failed: %w"
+func (c *Connection) handleClosedChannel(err *amqp.Error) {
+	if err == nil {
+		c.logger.logDebug("channel gracefully closed")
+
+		c.connectionCloseWG.Done()
+
+		return
+	}
+
+	if err.Code == amqp.NotFound {
+		c.logger.logDebug("channel unexpectedly closed", "cause", err)
+
+		if err := c.recoverChannel(); err != nil {
+			c.recoveryFailedChan <- err
+		}
+	}
+}
+
+func (c *Connection) recoverConnection() error {
+	const errMessage = "failed to recover connection: %w"
 
 	c.amqpConnection = nil
+
+	if err := c.backOff(
+		func() error {
+			return c.createConnection()
+		},
+	); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	if err := c.recoverChannel(); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	c.logger.logInfo("successfully recovered connection")
+
+	return nil
+}
+
+func (c *Connection) recoverChannel() error {
+	const errMessage = "failed to recover channel: %w"
+
 	c.amqpChannel = nil
 
-	err := c.backOff(
+	if err := c.backOff(
 		func() error {
-			err := c.createConnection()
-			if err != nil {
-				return err
-			}
-
-			err = c.createChannel()
-			if err != nil {
-				return err
-			}
-
-			return nil
+			return c.createChannel()
 		},
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
 	if c.runningConsumers > 0 {
-		err = c.recoverConsumer()
-		if err != nil {
+		if err := c.recoverConsumer(); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 	}
 
-	c.logger.logInfo("successfully recovered connection")
+	c.logger.logInfo("successfully recovered channel")
 
 	return nil
 }
@@ -391,20 +389,18 @@ func (c *Connection) backOff(action func() error) error {
 
 	for retry <= c.options.MaxReconnectRetries {
 		if action() == nil {
-			c.logger.logDebug("successfully reestablished amqp-connection", "retries", retry)
-
 			break
 		}
 
 		if retry == c.options.MaxReconnectRetries {
-			c.logger.logDebug("reconnection failed: maximum retries exceeded", "retries", retry)
+			c.logger.logDebug("recovery failed: maximum retries exceeded", "retries", retry)
 
 			return fmt.Errorf(errMessage, ErrMaxRetriesExceeded)
 		}
 
 		delay := time.Duration(c.options.BackOffFactor*retry) * c.options.ReconnectInterval
 
-		c.logger.logDebug("failed to reconnect: backing off...", "back-off-time", delay.String())
+		c.logger.logDebug("failed to recover: backing off...", "back-off-time", delay.String())
 
 		time.Sleep(delay)
 
