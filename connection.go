@@ -12,19 +12,21 @@ import (
 )
 
 const (
-	closeWGDelta          int = 2
-	reconnectFailChanSize int = 32
+	closeWGDelta          int    = 2
+	reconnectFailChanSize int    = 32
+	endOfFile             string = "EOF"
 )
 
 type Connection struct {
 	options *ConnectionOptions
 
+	connMU         sync.Mutex
 	amqpConnection *amqp.Connection
 	amqpChannel    *amqp.Channel
 
 	connectionCloseWG *sync.WaitGroup
 
-	recoveryFailedChan   chan error
+	errChan              chan error
 	consumerRecoveryChan chan error
 
 	runningConsumers int
@@ -48,7 +50,7 @@ func NewConnection(uri string, options ...ConnectionOption) (*Connection, error)
 
 	conn := &Connection{
 		connectionCloseWG:    &sync.WaitGroup{},
-		recoveryFailedChan:   make(chan error, reconnectFailChanSize),
+		errChan:              make(chan error, reconnectFailChanSize),
 		consumerRecoveryChan: make(chan error),
 		logger:               newLogger(opt.loggers),
 		returnHandler:        opt.ReturnHandler,
@@ -92,7 +94,7 @@ func (c *Connection) Close() error {
 
 		c.connectionCloseWG.Wait()
 
-		close(c.recoveryFailedChan)
+		close(c.errChan)
 		close(c.consumerRecoveryChan)
 
 		c.logger.logInfo("gracefully closed connection to rabbitmq")
@@ -101,10 +103,9 @@ func (c *Connection) Close() error {
 	return nil
 }
 
-// NotifyAutoRecoveryFail returns a channel that will return an error when
-// the recovery has exceeded the maximum number of retries.
-func (c *Connection) NotifyAutoRecoveryFail() <-chan error {
-	return c.recoveryFailedChan
+// NotifyErrors returns a channel that will return an errors that happen concurrently.
+func (c *Connection) NotifyErrors() <-chan error {
+	return c.errChan
 }
 
 // Reconnect can be used to manually reconnect to RabbitMQ.
@@ -112,6 +113,10 @@ func (c *Connection) Reconnect() error {
 	const errMessage = "failed to reconnect to rabbitmq: %w"
 
 	if err := c.recoverConnection(); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	if err := c.recoverChannel(); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -184,7 +189,11 @@ func (c *Connection) connect() error {
 	const errMessage = "failed to connect to rabbitmq: %w"
 
 	if c.amqpConnection == nil {
-		if err := c.createConnection(); err != nil {
+		if err := c.backOff(
+			func() error {
+				return c.createConnection()
+			},
+		); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
@@ -201,7 +210,10 @@ func (c *Connection) createConnection() error {
 
 	var err error
 
+	c.connMU.Lock()
 	c.amqpConnection, err = amqp.DialConfig(c.options.uri, amqp.Config(*c.options.Config))
+	c.connMU.Unlock()
+
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
@@ -215,8 +227,16 @@ func (c *Connection) createChannel() error {
 	const errMessage = "failed to create channel: %w"
 
 	var err error
+	c.connMU.Lock()
+	if c.amqpConnection == nil || c.amqpConnection.IsClosed() {
+		c.connMU.Unlock()
+
+		return errNoActiveConnection
+	}
 
 	c.amqpChannel, err = c.amqpConnection.Channel()
+	c.connMU.Unlock()
+
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
@@ -299,7 +319,7 @@ func (c *Connection) handleClosedConnection(err *amqp.Error) {
 	}
 
 	if err := c.recoverConnection(); err != nil {
-		c.recoveryFailedChan <- err
+		c.errChan <- &RecoveryFailedError{err}
 	}
 }
 
@@ -312,19 +332,23 @@ func (c *Connection) handleClosedChannel(err *amqp.Error) {
 		return
 	}
 
-	if err.Code == amqp.NotFound {
-		c.logger.logDebug("channel unexpectedly closed", "cause", err)
+	c.logger.logDebug("channel unexpectedly closed", "cause", err)
 
-		if err := c.recoverChannel(); err != nil {
-			c.recoveryFailedChan <- err
-		}
+	amqpErr := AMQPError(*err)
+
+	c.errChan <- &amqpErr
+
+	if err := c.recoverChannel(); err != nil {
+		c.errChan <- &RecoveryFailedError{err}
 	}
 }
 
 func (c *Connection) recoverConnection() error {
 	const errMessage = "failed to recover connection: %w"
 
+	c.connMU.Lock()
 	c.amqpConnection = nil
+	c.connMU.Unlock()
 
 	if err := c.backOff(
 		func() error {
@@ -334,11 +358,7 @@ func (c *Connection) recoverConnection() error {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	if err := c.recoverChannel(); err != nil {
-		return fmt.Errorf(errMessage, err)
-	}
-
-	c.logger.logInfo("successfully recovered connection")
+	c.logger.logDebug("successfully recovered connection")
 
 	return nil
 }
@@ -362,7 +382,7 @@ func (c *Connection) recoverChannel() error {
 		}
 	}
 
-	c.logger.logInfo("successfully recovered channel")
+	c.logger.logDebug("successfully recovered channel")
 
 	return nil
 }
