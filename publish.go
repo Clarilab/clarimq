@@ -76,6 +76,15 @@ func (publisher *Publisher) PublishWithOptions(ctx context.Context, targets []st
 func (publisher *Publisher) internalPublish(ctx context.Context, routingKeys []string, data any, options *PublishOptions) error {
 	const errMessage = "failed to publish: %w"
 
+	publisher.conn.amqpChanMU.Lock()
+	if publisher.conn.amqpChannel == nil || publisher.conn.amqpChannel.IsClosed() {
+		publisher.conn.amqpChanMU.Unlock()
+
+		return fmt.Errorf(errMessage, ErrChannelClosed)
+	}
+
+	publisher.conn.amqpChanMU.Unlock()
+
 	body, err := publisher.encodeBody(data, options)
 	if err != nil {
 		return fmt.Errorf(errMessage, err)

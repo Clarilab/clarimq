@@ -7,8 +7,11 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// errNoActiveConnection occurs when there is no active connection while trying to get the failed recovery notification channel.
-var errNoActiveConnection = errors.New("no active connection to rabbitmq")
+// ErrNoActiveConnection occurs when there is no active connection while trying to get the failed recovery notification channel.
+var ErrNoActiveConnection = errors.New("no active connection to rabbitmq")
+
+// ErrChannelClosed occurs when the channel accessed but is closed.
+var ErrChannelClosed = errors.New("amqp channel is closed")
 
 // ErrMaxRetriesExceeded occurs when the maximum number of retries exceeds.
 var ErrMaxRetriesExceeded = errors.New("max retries exceeded")

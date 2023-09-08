@@ -20,12 +20,15 @@ const (
 type Connection struct {
 	options *ConnectionOptions
 
-	connMU         sync.Mutex
+	amqpConnMU     sync.Mutex
 	amqpConnection *amqp.Connection
-	amqpChannel    *amqp.Channel
+
+	amqpChanMU  sync.Mutex
+	amqpChannel *amqp.Channel
 
 	connectionCloseWG *sync.WaitGroup
 
+	errChanMU            sync.Mutex
 	errChan              chan error
 	consumerRecoveryChan chan error
 
@@ -210,9 +213,9 @@ func (c *Connection) createConnection() error {
 
 	var err error
 
-	c.connMU.Lock()
+	c.amqpConnMU.Lock()
 	c.amqpConnection, err = amqp.DialConfig(c.options.uri, amqp.Config(*c.options.Config))
-	c.connMU.Unlock()
+	c.amqpConnMU.Unlock()
 
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
@@ -227,15 +230,19 @@ func (c *Connection) createChannel() error {
 	const errMessage = "failed to create channel: %w"
 
 	var err error
-	c.connMU.Lock()
+	c.amqpConnMU.Lock()
 	if c.amqpConnection == nil || c.amqpConnection.IsClosed() {
-		c.connMU.Unlock()
+		c.amqpConnMU.Unlock()
 
-		return errNoActiveConnection
+		return ErrNoActiveConnection
 	}
 
+	c.amqpChanMU.Lock()
+
 	c.amqpChannel, err = c.amqpConnection.Channel()
-	c.connMU.Unlock()
+
+	c.amqpChanMU.Unlock()
+	c.amqpConnMU.Unlock()
 
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
@@ -319,7 +326,9 @@ func (c *Connection) handleClosedConnection(err *amqp.Error) {
 	}
 
 	if err := c.recoverConnection(); err != nil {
+		c.errChanMU.Lock()
 		c.errChan <- &RecoveryFailedError{err}
+		c.errChanMU.Unlock()
 	}
 }
 
@@ -336,19 +345,23 @@ func (c *Connection) handleClosedChannel(err *amqp.Error) {
 
 	amqpErr := AMQPError(*err)
 
+	c.errChanMU.Lock()
 	c.errChan <- &amqpErr
+	c.errChanMU.Unlock()
 
 	if err := c.recoverChannel(); err != nil {
+		c.errChanMU.Lock()
 		c.errChan <- &RecoveryFailedError{err}
+		c.errChanMU.Unlock()
 	}
 }
 
 func (c *Connection) recoverConnection() error {
 	const errMessage = "failed to recover connection: %w"
 
-	c.connMU.Lock()
+	c.amqpConnMU.Lock()
 	c.amqpConnection = nil
-	c.connMU.Unlock()
+	c.amqpConnMU.Unlock()
 
 	if err := c.backOff(
 		func() error {
@@ -366,7 +379,9 @@ func (c *Connection) recoverConnection() error {
 func (c *Connection) recoverChannel() error {
 	const errMessage = "failed to recover channel: %w"
 
+	c.amqpChanMU.Lock()
 	c.amqpChannel = nil
+	c.amqpChanMU.Unlock()
 
 	if err := c.backOff(
 		func() error {
