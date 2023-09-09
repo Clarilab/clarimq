@@ -1254,10 +1254,12 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	// (later used to compare if the reconnection was successful).
 	publishConn := getConnection(t,
 		clarimq.WithConnectionOptionJSONLogging(publishConnLogBuffer, slog.LevelDebug),
+		clarimq.WithConnectionOptionBackOffFactor(1),
 	)
 
 	consumeConn := getConnection(t,
 		clarimq.WithConnectionOptionJSONLogging(consumeConnLogBuffer, slog.LevelDebug),
+		clarimq.WithConnectionOptionBackOffFactor(1),
 	)
 
 	t.Cleanup(func() {
@@ -1318,7 +1320,7 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 
 	wg := &sync.WaitGroup{}
 
-	wg.Add(2)
+	wg.Add(4)
 
 	// reading the logs
 	go watchConnLogBuffer(publishConnLogBuffer, wg)
@@ -1353,10 +1355,15 @@ func watchConnLogBuffer(buffer *testBuffer, wg *sync.WaitGroup) {
 			buffer.Reset()
 		}
 
-		if logEntry.Msg == "successfully recovered connection" {
+		switch logEntry.Msg {
+		case "successfully recovered connection":
 			wg.Done()
 
-			break
+			continue
+		case "successfully recovered channel":
+			wg.Done()
+
+			return
 		}
 	}
 }
@@ -1369,11 +1376,13 @@ func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) 
 
 	// declaring the connections with a maximum of 1 reconnection attempts.
 	publishConn := getConnection(t,
-		clarimq.WithConnectionOptionMaxReconnectRetries(1),
+		clarimq.WithConnectionOptionMaxReconnectRetries(4),
+		clarimq.WithConnectionOptionBackOffFactor(1),
 	)
 
 	consumeConn := getConnection(t,
-		clarimq.WithConnectionOptionMaxReconnectRetries(1),
+		clarimq.WithConnectionOptionMaxReconnectRetries(4),
+		clarimq.WithConnectionOptionBackOffFactor(1),
 	)
 
 	t.Cleanup(func() {
@@ -1414,12 +1423,12 @@ func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) 
 	err = publisher.Publish(context.Background(), queueName, message)
 	requireNoError(t, err)
 
-	publishNotifyChan := publishConn.NotifyAutoRecoveryFail()
-	consumeNotifyChan := consumeConn.NotifyAutoRecoveryFail()
+	publishNotifyChan := publishConn.NotifyErrors()
+	consumeNotifyChan := consumeConn.NotifyErrors()
 
 	wg := &sync.WaitGroup{}
 
-	wg.Add(2)
+	wg.Add(4)
 
 	// handling the failed recovery notification.
 	go handleFailedRecovery(publishNotifyChan, wg)
@@ -1471,8 +1480,12 @@ func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) 
 }
 
 func handleFailedRecovery(chn <-chan error, wg *sync.WaitGroup) {
-	for range chn {
-		wg.Done()
+	for err := range chn {
+		var recoveryErr *clarimq.RecoveryFailedError
+
+		if errors.As(err, &recoveryErr) {
+			wg.Done()
+		}
 	}
 }
 
@@ -1512,7 +1525,7 @@ func requireNoError(t *testing.T, err error) {
 	t.Helper()
 
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 }
 
