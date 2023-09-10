@@ -3,6 +3,7 @@ package clarimq
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -16,10 +17,10 @@ const (
 
 // Publisher is a publisher for AMQP messages.
 type Publisher struct {
-	conn *Connection
-
-	publisherOptions *PublisherOptions
-	encoder          JSONEncoder
+	conn              *Connection
+	options           *PublisherOptions
+	encoder           JSONEncoder
+	publishingCacheMU sync.Mutex
 }
 
 // Creates a new Publisher instance. Options can be passed to customize the behavior of the Publisher.
@@ -39,9 +40,9 @@ func NewPublisher(conn *Connection, options ...PublisherOption) (*Publisher, err
 	}
 
 	publisher := &Publisher{
-		conn:             conn,
-		publisherOptions: opt,
-		encoder:          conn.options.codec.Encoder,
+		conn:    conn,
+		options: opt,
+		encoder: conn.options.codec.Encoder,
 	}
 
 	publisher.watchCheckPublishingCacheChan()
@@ -56,7 +57,11 @@ func NewPublisher(conn *Connection, options ...PublisherOption) (*Publisher, err
 func (publisher *Publisher) Close() error {
 	const errMessage = "failed to close publisher: %w"
 
-	if err := publisher.publisherOptions.PublishingCache.Flush(); err != nil {
+	publisher.publishingCacheMU.Lock()
+	err := publisher.options.PublishingCache.Flush()
+	publisher.publishingCacheMU.Unlock()
+
+	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -74,11 +79,11 @@ func (publisher *Publisher) Publish(ctx context.Context, target string, data any
 			PublishingID: newRandomString(),
 			Targets:      targets,
 			Data:         data,
-			Options:      publisher.publisherOptions.PublishingOptions,
+			Options:      publisher.options.PublishingOptions,
 		})
 	}
 
-	return publisher.internalPublish(ctx, targets, data, publisher.publisherOptions.PublishingOptions)
+	return publisher.internalPublish(ctx, targets, data, publisher.options.PublishingOptions)
 }
 
 // PublishWithOptions publishes a message to one or multiple targets.
@@ -88,7 +93,7 @@ func (publisher *Publisher) Publish(ctx context.Context, target string, data any
 // Options can be passed to override the default options just for this publish.
 func (publisher *Publisher) PublishWithOptions(ctx context.Context, targets []string, data any, options ...PublisherOption) error {
 	// create new options to not override the default options
-	opt := *publisher.publisherOptions
+	opt := *publisher.options
 
 	for i := range options {
 		options[i](&opt)
@@ -109,8 +114,8 @@ func (publisher *Publisher) PublishWithOptions(ctx context.Context, targets []st
 func (publisher *Publisher) cachePublishing(publishing Publishing) error {
 	const errMessage = "publishing failed: %w"
 
-	if publisher.publisherOptions.PublishingCache != nil {
-		if err := publisher.publisherOptions.PublishingCache.Put(publishing); err != nil {
+	if publisher.options.PublishingCache != nil {
+		if err := publisher.options.PublishingCache.Put(publishing); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
@@ -217,9 +222,16 @@ func (publisher *Publisher) encodeBody(data any, options *PublishOptions) ([]byt
 func (publisher *Publisher) watchCheckPublishingCacheChan() {
 	go func() {
 		for range publisher.conn.checkPublishingCacheChan {
-			if publisher.publisherOptions.PublishingCache != nil &&
-				publisher.publisherOptions.PublishingCache.Len() > 0 {
-				if err := publisher.PublishCachedMessages(context.Background()); err != nil {
+			if publisher.options.PublishingCache != nil {
+				publisher.publishingCacheMU.Lock()
+				cacheLen := publisher.options.PublishingCache.Len()
+				publisher.publishingCacheMU.Unlock()
+
+				if cacheLen == 0 {
+					continue
+				}
+
+				if err := publisher.publishCachedMessages(context.Background(), cacheLen); err != nil {
 					publisher.conn.errChanMU.Lock()
 					publisher.conn.errChan <- err
 					publisher.conn.errChanMU.Unlock()
@@ -231,30 +243,35 @@ func (publisher *Publisher) watchCheckPublishingCacheChan() {
 
 var ErrCacheNotSet = fmt.Errorf("publishing cache is not set")
 
-func (publisher *Publisher) PublishCachedMessages(ctx context.Context) error {
+func (publisher *Publisher) publishCachedMessages(ctx context.Context, cacheLen int) error {
 	const errMessage = "failed to publish cached messages: %w"
 
-	if publisher.publisherOptions.PublishingCache == nil {
+	if publisher.options.PublishingCache == nil {
 		return fmt.Errorf(errMessage, ErrCacheNotSet)
 	}
 
-	cacheLen := publisher.publisherOptions.PublishingCache.Len()
+	publisher.publishingCacheMU.Lock()
+	publishings, err := publisher.options.PublishingCache.PopAll()
+	publisher.publishingCacheMU.Unlock()
 
-	publishings, err := publisher.publisherOptions.PublishingCache.PopAll()
 	if err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	if err = publisher.conn.amqpChannel.Confirm(false); err != nil {
-		return fmt.Errorf(errMessage, err)
-	}
-
 	for i := range publishings {
+		publisher.publishingCacheMU.Lock()
+
+		targets := publishings[i].GetTargets()
+		data := publishings[i].GetData()
+		options := publishings[i].GetOptions()
+
+		publisher.publishingCacheMU.Unlock()
+
 		if err = publisher.internalPublish(
 			ctx,
-			publishings[i].GetTargets(),
-			publishings[i].GetData(),
-			publishings[i].GetOptions(),
+			targets,
+			data,
+			options,
 		); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
