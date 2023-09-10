@@ -2,10 +2,11 @@
 
 This library is a wrapper around the [Go AMQP Client Library](https://github.com/rabbitmq/amqp091-go).
 
-This library also includes support for:
+This library includes support for:
 - structured logging to multiple writers
 - automatic recovery
 - retry functionality
+- publishing cache
 
 Supported Go Versions
 
