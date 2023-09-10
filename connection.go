@@ -28,10 +28,12 @@ type Connection struct {
 
 	connectionCloseWG *sync.WaitGroup
 
-	errChanMU            sync.Mutex
-	errChan              chan error
-	consumerRecoveryChan chan error
+	errChanMU                sync.Mutex
+	errChan                  chan error
+	consumerRecoveryChan     chan error
+	checkPublishingCacheChan chan struct{}
 
+	isPublisher      bool
 	runningConsumers int
 
 	logger *logger
@@ -47,17 +49,18 @@ func NewConnection(uri string, options ...ConnectionOption) (*Connection, error)
 
 	opt := defaultConnectionOptions(uri)
 
-	for i := 0; i < len(options); i++ {
+	for i := range options {
 		options[i](opt)
 	}
 
 	conn := &Connection{
-		connectionCloseWG:    &sync.WaitGroup{},
-		errChan:              make(chan error, reconnectFailChanSize),
-		consumerRecoveryChan: make(chan error),
-		logger:               newLogger(opt.loggers),
-		returnHandler:        opt.ReturnHandler,
-		options:              opt,
+		connectionCloseWG:        &sync.WaitGroup{},
+		errChan:                  make(chan error, reconnectFailChanSize),
+		consumerRecoveryChan:     make(chan error),
+		checkPublishingCacheChan: make(chan struct{}),
+		logger:                   newLogger(opt.loggers),
+		returnHandler:            opt.ReturnHandler,
+		options:                  opt,
 	}
 
 	err := conn.connect()
@@ -99,6 +102,7 @@ func (c *Connection) Close() error {
 
 		close(c.errChan)
 		close(c.consumerRecoveryChan)
+		close(c.checkPublishingCacheChan)
 
 		c.logger.logInfo("gracefully closed connection to rabbitmq")
 	}
@@ -295,21 +299,21 @@ func (c *Connection) watchChannelNotifications() {
 			case tag := <-cancelChan:
 				c.logger.logWarn("cancel exception", "cause", tag)
 
-			case rtrn := <-returnChan:
+			case rtn := <-returnChan:
 				if c.returnHandler != nil {
-					c.returnHandler(Return(rtrn))
+					c.returnHandler(Return(rtn))
 
 					continue
 				}
 
 				c.logger.logWarn(
 					"message could not be published",
-					"replyCode", rtrn.ReplyCode,
-					"replyText", rtrn.ReplyText,
-					"messageId", rtrn.MessageId,
-					"correlationId", rtrn.CorrelationId,
-					"exchange", rtrn.Exchange,
-					"routingKey", rtrn.RoutingKey,
+					"replyCode", rtn.ReplyCode,
+					"replyText", rtn.ReplyText,
+					"messageId", rtn.MessageId,
+					"correlationId", rtn.CorrelationId,
+					"exchange", rtn.Exchange,
+					"routingKey", rtn.RoutingKey,
 				)
 			}
 		}
@@ -397,6 +401,10 @@ func (c *Connection) recoverChannel() error {
 		}
 	}
 
+	if c.isPublisher {
+		c.checkPublishingCacheChan <- struct{}{}
+	}
+
 	c.logger.logDebug("successfully recovered channel")
 
 	return nil
@@ -418,7 +426,7 @@ func (c *Connection) recoverConsumer() error {
 }
 
 func (c *Connection) backOff(action func() error) error {
-	const errMessage = "back-off failed %w"
+	const errMessage = "backOff failed %w"
 
 	retry := 0
 
@@ -435,7 +443,7 @@ func (c *Connection) backOff(action func() error) error {
 
 		delay := time.Duration(c.options.BackOffFactor*retry) * c.options.ReconnectInterval
 
-		c.logger.logDebug("failed to recover: backing off...", "back-off-time", delay.String())
+		c.logger.logDebug("failed to recover: backing off...", "backOffTime", delay.String())
 
 		time.Sleep(delay)
 
@@ -443,4 +451,11 @@ func (c *Connection) backOff(action func() error) error {
 	}
 
 	return nil
+}
+
+func (c *Connection) isClosed() bool {
+	c.amqpChanMU.Lock()
+	defer c.amqpChanMU.Unlock()
+
+	return c.amqpChannel == nil || c.amqpChannel.IsClosed()
 }

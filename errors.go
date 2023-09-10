@@ -10,8 +10,11 @@ import (
 // ErrNoActiveConnection occurs when there is no active connection while trying to get the failed recovery notification channel.
 var ErrNoActiveConnection = errors.New("no active connection to rabbitmq")
 
-// ErrChannelClosed occurs when the channel accessed but is closed.
-var ErrChannelClosed = errors.New("amqp channel is closed")
+// ErrPublishFailedChannelClosed occurs when the channel is accessed while being closed.
+var ErrPublishFailedChannelClosed = errors.New("channel is closed")
+
+// ErrPublishFailedChannelClosedCached occurs when the channel is accessed while being closed but publishing was cached.
+var ErrPublishFailedChannelClosedCached = errors.New("channel is closed: publishing was cached")
 
 // ErrMaxRetriesExceeded occurs when the maximum number of retries exceeds.
 var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
