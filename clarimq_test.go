@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Clarilab/clarimq"
+	"github.com/Clarilab/clarimq/cache"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -775,24 +776,26 @@ func Test_Integration_CustomOptions(t *testing.T) {
 					targets,
 					message,
 					clarimq.WithCustomPublishOptions(
-						&clarimq.PublishOptions{
-							MessageID:     "messageID",
-							CorrelationID: "correlationID",
-							Timestamp:     now,
-							AppID:         "service-name",
-							UserID:        "guest",
-							ContentType:   "text/plain",
-							Mandatory:     false,
-							Headers: clarimq.Table{
-								"test-header": "test-header-value",
+						&clarimq.PublisherOptions{
+							PublishingOptions: &clarimq.PublishOptions{
+								MessageID:     "messageID",
+								CorrelationID: "correlationID",
+								Timestamp:     now,
+								AppID:         "service-name",
+								UserID:        "guest",
+								ContentType:   "text/plain",
+								Mandatory:     false,
+								Headers: clarimq.Table{
+									"test-header": "test-header-value",
+								},
+								Exchange:        clarimq.ExchangeDefault,
+								Expiration:      "200000",
+								ContentEncoding: "",
+								ReplyTo:         "for-rpc-servers",
+								Type:            "",
+								Priority:        clarimq.NoPriority,
+								DeliveryMode:    clarimq.TransientDelivery,
 							},
-							Exchange:        clarimq.ExchangeDefault,
-							Expiration:      "200000",
-							ContentEncoding: "",
-							ReplyTo:         "for-rpc-servers",
-							Type:            "",
-							Priority:        clarimq.NoPriority,
-							DeliveryMode:    clarimq.TransientDelivery,
 						},
 					),
 				)
@@ -1487,6 +1490,88 @@ func handleFailedRecovery(chn <-chan error, wg *sync.WaitGroup) {
 			wg.Done()
 		}
 	}
+}
+
+func Test_Reconnection_PublishingCache(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+	message := "test-message"
+
+	publishConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionReconnectInterval(500*time.Millisecond),
+	)
+
+	consumeConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionReconnectInterval(500*time.Millisecond),
+	)
+
+	t.Cleanup(func() {
+		err := publishConn.Close()
+		requireNoError(t, err)
+
+		err = consumeConn.Close()
+		requireNoError(t, err)
+	})
+
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+
+	handler := func(msg *clarimq.Delivery) clarimq.Action {
+		requireEqual(t, message, string(msg.Body))
+
+		wg.Done()
+
+		return clarimq.Ack
+	}
+
+	queueName := stringGen()
+
+	// creating a consumer.
+	_, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+		clarimq.WithQueueOptionDurable(true),
+	)
+	requireNoError(t, err)
+
+	// creating a publisher.
+	publisher, err := clarimq.NewPublisher(publishConn,
+		clarimq.WithPublishOptionMandatory(true),
+		clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
+	)
+	requireNoError(t, err)
+
+	t.Cleanup(func() {
+		err := publisher.Close()
+		requireNoError(t, err)
+	})
+
+	err = publisher.Publish(context.Background(), queueName, message)
+	requireNoError(t, err)
+
+	wg.Wait()
+
+	// shutting down the rabbitmq container to simulate a connection loss.
+	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
+	requireNoError(t, err)
+
+	for i := 0; i < 4; i++ {
+		// publish messages to the queue with while not connected.
+		if err := publisher.Publish(context.Background(), queueName, message); !errors.Is(err, clarimq.ErrPublishFailedChannelClosedCached) {
+			t.Fatal()
+		}
+	}
+
+	// bringing the rabbitmq container up again.
+	err = exec.Command("docker", "compose", "up", "-d").Run()
+	requireNoError(t, err)
+
+	wg.Add(4)
+
+	// waiting for the recovered consumer to process the cached messages.
+	wg.Wait()
+
+	_, err = consumeConn.RemoveQueue(queueName, false, false, false)
+	requireNoError(t, err)
 }
 
 // ##### helper functions: ##########################
