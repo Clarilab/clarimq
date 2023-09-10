@@ -10,12 +10,12 @@ vuln:
 	govulncheck ./...
 
 test:
-	go test -skip "(Test_Integration|Test_Reconnection)" -vet=off -failfast -race -coverprofile=coverage.out
+	go test -skip "(Test_Integration|Test_Recovery)" -vet=off -failfast -race -coverprofile=coverage.out
 
 test_integration:
 	./run_integration_tests.sh Test_Integration
 
-test_reconnection:
-	./run_integration_tests.sh Test_Reconnection
+test_recovery:
+	./run_integration_tests.sh Test_Recovery
 
-test_all: test test_integration test_reconnection
+test_all: test test_integration test_recovery

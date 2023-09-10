@@ -19,8 +19,8 @@ var ErrPublishFailedChannelClosedCached = errors.New("channel is closed: publish
 // ErrMaxRetriesExceeded occurs when the maximum number of retries exceeds.
 var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 
-// ErrHealthyConnection occurs when a manual reconnect is triggered but the connection persists.
-var ErrHealthyConnection = errors.New("connection is healthy, no need to reconnect")
+// ErrHealthyConnection occurs when a manual recovery is triggered but the connection persists.
+var ErrHealthyConnection = errors.New("connection is healthy, no need to recover")
 
 // ErrInvalidConnection occurs when an invalid connection is passed to a publisher or a consumer.
 var ErrInvalidConnection = errors.New("invalid connection")

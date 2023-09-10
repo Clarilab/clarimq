@@ -36,11 +36,11 @@ jobs:
         curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
         golangci-lint run --out-format=github-actions
 
-    - name: Integration Test
+    - name: Integration Tests
       run: make test_integration
     
-    - name: Reconnection Test
-      run: make test_reconnection
+    - name: Recovery Tests
+      run: make test_recovery
 
   govulncheck:
     runs-on: ubuntu-latest

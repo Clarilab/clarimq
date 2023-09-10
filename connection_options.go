@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	defaultReconnectInterval   time.Duration = time.Second
-	defaultMaxReconnectRetries int           = 10
-	defaultBackOffFactor       int           = 2
-	defaultPrefetchCount       int           = 0
+	defaultRecoveryInterval   time.Duration = time.Second
+	defaultMaxRecoveryRetries int           = 10
+	defaultBackOffFactor      int           = 2
+	defaultPrefetchCount      int           = 0
 )
 
 type (
@@ -28,14 +28,14 @@ type (
 	// ConnectionOptions are used to describe how a new connection will be created.
 	ConnectionOptions struct {
 		ReturnHandler
-		loggers             []*slog.Logger
-		Config              *Config
-		codec               *codec
-		uri                 string
-		PrefetchCount       int
-		ReconnectInterval   time.Duration
-		MaxReconnectRetries int
-		BackOffFactor       int
+		loggers            []*slog.Logger
+		Config             *Config
+		codec              *codec
+		uri                string
+		PrefetchCount      int
+		RecoveryInterval   time.Duration
+		MaxRecoveryRetries int
+		BackOffFactor      int
 	}
 
 	// ConnectionSettings holds settings for a broker connection.
@@ -55,10 +55,10 @@ type (
 
 func defaultConnectionOptions(uri string) *ConnectionOptions {
 	return &ConnectionOptions{
-		uri:                 uri,
-		ReconnectInterval:   defaultReconnectInterval,
-		MaxReconnectRetries: defaultMaxReconnectRetries,
-		BackOffFactor:       defaultBackOffFactor,
+		uri:                uri,
+		RecoveryInterval:   defaultRecoveryInterval,
+		MaxRecoveryRetries: defaultMaxRecoveryRetries,
+		BackOffFactor:      defaultBackOffFactor,
 		Config: &Config{
 			Properties: make(amqp.Table),
 		},
@@ -77,7 +77,7 @@ func WithCustomConnectionOptions(options *ConnectionOptions) ConnectionOption {
 	return func(opt *ConnectionOptions) {
 		if options != nil {
 			opt.PrefetchCount = options.PrefetchCount
-			opt.ReconnectInterval = options.ReconnectInterval
+			opt.RecoveryInterval = options.RecoveryInterval
 
 			if options.Config != nil {
 				opt.Config = options.Config
@@ -160,18 +160,18 @@ func WithConnectionOptionReturnHandler(returnHandler ReturnHandler) ConnectionOp
 	return func(options *ConnectionOptions) { options.ReturnHandler = returnHandler }
 }
 
-// WithConnectionOptionReconnectInterval sets the initial reconnection interval.
+// WithConnectionOptionRecoveryInterval sets the initial recovery interval.
 //
 // Default: 1s.
-func WithConnectionOptionReconnectInterval(interval time.Duration) ConnectionOption {
-	return func(options *ConnectionOptions) { options.ReconnectInterval = interval }
+func WithConnectionOptionRecoveryInterval(interval time.Duration) ConnectionOption {
+	return func(options *ConnectionOptions) { options.RecoveryInterval = interval }
 }
 
-// WithConnectionOptionMaxReconnectRetries sets the limit for maximum retries.
+// WithConnectionOptionMaxRecoveryRetries sets the limit for maximum retries.
 //
 // Default: 10.
-func WithConnectionOptionMaxReconnectRetries(maxRetries int) ConnectionOption {
-	return func(options *ConnectionOptions) { options.MaxReconnectRetries = maxRetries }
+func WithConnectionOptionMaxRecoveryRetries(maxRetries int) ConnectionOption {
+	return func(options *ConnectionOptions) { options.MaxRecoveryRetries = maxRetries }
 }
 
 // WithConnectionOptionBackOffFactor sets the exponential back-off factor.

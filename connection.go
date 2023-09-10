@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	closeWGDelta          int    = 2
-	reconnectFailChanSize int    = 32
-	endOfFile             string = "EOF"
+	closeWGDelta int    = 2
+	errChanSize  int    = 32
+	endOfFile    string = "EOF"
 )
 
 type Connection struct {
@@ -55,7 +55,7 @@ func NewConnection(uri string, options ...ConnectionOption) (*Connection, error)
 
 	conn := &Connection{
 		connectionCloseWG:        &sync.WaitGroup{},
-		errChan:                  make(chan error, reconnectFailChanSize),
+		errChan:                  make(chan error, errChanSize),
 		consumerRecoveryChan:     make(chan error),
 		checkPublishingCacheChan: make(chan struct{}),
 		logger:                   newLogger(opt.loggers),
@@ -112,9 +112,9 @@ func (c *Connection) NotifyErrors() <-chan error {
 	return c.errChan
 }
 
-// Reconnect can be used to manually reconnect to the broker.
-func (c *Connection) Reconnect() error {
-	const errMessage = "failed to reconnect to the broker: %w"
+// Recover can be used to manually start the recovery.
+func (c *Connection) Recover() error {
+	const errMessage = "failed to recover: %w"
 
 	if err := c.recoverConnection(); err != nil {
 		return fmt.Errorf(errMessage, err)
@@ -426,18 +426,18 @@ func (c *Connection) backOff(action func() error) error {
 
 	retry := 0
 
-	for retry <= c.options.MaxReconnectRetries {
+	for retry <= c.options.MaxRecoveryRetries {
 		if action() == nil {
 			break
 		}
 
-		if retry == c.options.MaxReconnectRetries {
+		if retry == c.options.MaxRecoveryRetries {
 			c.logger.logDebug("recovery failed: maximum retries exceeded", "retries", retry)
 
 			return fmt.Errorf(errMessage, ErrMaxRetriesExceeded)
 		}
 
-		delay := time.Duration(c.options.BackOffFactor*retry) * c.options.ReconnectInterval
+		delay := time.Duration(c.options.BackOffFactor*retry) * c.options.RecoveryInterval
 
 		c.logger.logDebug("failed to recover: backing off...", "backOffTime", delay.String())
 

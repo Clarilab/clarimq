@@ -9,7 +9,7 @@ This library also includes support for:
 
 Supported Go Versions
 
-This library supports the most recent Go, currently 1.21
+This library supports the most recent Go, currently 1.21.1
 
 ## INSTALL
 
@@ -59,7 +59,7 @@ connectionOptions := &clarimq.ConnectionOptions{
 		Locale:          "",
 	},
 	PrefetchCount:     1,
-	ReconnectInterval: 1,
+	RecoveryInterval: 1,
 },
 
 conn, err := clarimq.NewConnection(clarimq.SettingsToURI(connectionSettings), 
@@ -256,9 +256,9 @@ This library provides an automatic recovery with build-in exponential back-off f
 ##### Example: 
 ```Go
 conn, err := clarimq.NewConnection(settings,
-	clarimq.WithConnectionOptionReconnectInterval(2),    // default is 1 second
+	clarimq.WithConnectionOptionRecoveryInterval(2),    // default is 1 second
 	clarimq.WithConnectionOptionBackOffFactor(3),        // default is 2
-	clarimq.WithConnectionOptionMaxReconnectRetries(16), // default is 10
+	clarimq.WithConnectionOptionMaxRecoveryRetries(16), // default is 10
 )
 if err != nil {
 	// handle error

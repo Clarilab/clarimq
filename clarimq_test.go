@@ -747,10 +747,10 @@ func Test_Integration_CustomOptions(t *testing.T) {
 
 				return getConnection(t, clarimq.WithCustomConnectionOptions(
 					&clarimq.ConnectionOptions{
-						ReturnHandler:     nil,
-						Config:            &amqpConfig,
-						PrefetchCount:     0,
-						ReconnectInterval: 0,
+						ReturnHandler:    nil,
+						Config:           &amqpConfig,
+						PrefetchCount:    0,
+						RecoveryInterval: 0,
 					},
 				))
 			}(),
@@ -1235,7 +1235,7 @@ type logEntry struct {
 	Msg   string    `json:"msg"`
 }
 
-func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+func Test_Recovery_AutomaticRecovery(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
 	// used to wait until the handler processed the deliveries.
 	doneChan := make(chan struct{})
 
@@ -1254,17 +1254,17 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	}
 
 	// declaring the connections with JSON logging on debug level enabled.
-	// (later used to compare if the reconnection was successful).
+	// (later used to compare if the recovery was successful).
 	publishConn := getConnection(t,
 		clarimq.WithConnectionOptionJSONLogging(publishConnLogBuffer, slog.LevelDebug),
 		clarimq.WithConnectionOptionBackOffFactor(1),
-		clarimq.WithConnectionOptionReconnectInterval(500*time.Millisecond),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
 	consumeConn := getConnection(t,
 		clarimq.WithConnectionOptionJSONLogging(consumeConnLogBuffer, slog.LevelDebug),
 		clarimq.WithConnectionOptionBackOffFactor(1),
-		clarimq.WithConnectionOptionReconnectInterval(500*time.Millisecond),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
 	t.Cleanup(func() {
@@ -1319,9 +1319,9 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	err = exec.Command("docker", "compose", "up", "-d").Run()
 	requireNoError(t, err)
 
-	// While trying to reconnect, the logger writes information about the reconnection state on debug level.
+	// While trying to recover, the logger writes information about the recovery state on debug level.
 	// In the following routines, the buffer given to the logger is read until the msg in the
-	// log-entry states that reconnection was successful.
+	// log-entry states that the recovery was successful.
 
 	wg := &sync.WaitGroup{}
 
@@ -1334,7 +1334,7 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	// waiting for the both connections to be successfully recovered.
 	wg.Wait()
 
-	// publish a new message to the queue with the reconnected .
+	// publish a new message to the queue after the recovery.
 	err = publisher.Publish(context.Background(), queueName, message)
 	requireNoError(t, err)
 
@@ -1373,20 +1373,20 @@ func watchConnLogBuffer(buffer *testBuffer, wg *sync.WaitGroup) {
 	}
 }
 
-func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
 	// used to wait until the handler processed the deliveries.
 	doneChan := make(chan struct{})
 
 	message := "test-message"
 
-	// declaring the connections with a maximum of 1 reconnection attempts.
+	// declaring the connections with a maximum of 1 recovery attempts.
 	publishConn := getConnection(t,
-		clarimq.WithConnectionOptionMaxReconnectRetries(4),
+		clarimq.WithConnectionOptionMaxRecoveryRetries(4),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 	)
 
 	consumeConn := getConnection(t,
-		clarimq.WithConnectionOptionMaxReconnectRetries(4),
+		clarimq.WithConnectionOptionMaxRecoveryRetries(4),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 	)
 
@@ -1466,14 +1466,14 @@ func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) 
 		}
 	}
 
-	// manually reconnecting.
-	err = publishConn.Reconnect()
+	// manually recovering.
+	err = publishConn.Recover()
 	requireNoError(t, err)
 
-	err = consumeConn.Reconnect()
+	err = consumeConn.Recover()
 	requireNoError(t, err)
 
-	// publish a new message to the queue with the reconnected .
+	// publish a new message to the queue after the recovery.
 	err = publisher.Publish(context.Background(), queueName, message)
 	requireNoError(t, err)
 
@@ -1494,17 +1494,17 @@ func handleFailedRecovery(chn <-chan error, wg *sync.WaitGroup) {
 	}
 }
 
-func Test_Reconnection_PublishingCache(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
 	message := "test-message"
 
 	publishConn := getConnection(t,
 		clarimq.WithConnectionOptionBackOffFactor(1),
-		clarimq.WithConnectionOptionReconnectInterval(500*time.Millisecond),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
 	consumeConn := getConnection(t,
 		clarimq.WithConnectionOptionBackOffFactor(1),
-		clarimq.WithConnectionOptionReconnectInterval(500*time.Millisecond),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
 	t.Cleanup(func() {
