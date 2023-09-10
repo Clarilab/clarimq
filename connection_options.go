@@ -17,6 +17,7 @@ const (
 )
 
 type (
+	// ConnectionOption is an option for a Connection.
 	ConnectionOption func(*ConnectionOptions)
 
 	// Config is used in DialConfig and Open to specify the desired tuning

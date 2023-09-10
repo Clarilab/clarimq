@@ -23,6 +23,7 @@ const (
 )
 
 type (
+	// ConsumeOption is an option for a Consumer.
 	ConsumeOption func(*ConsumeOptions)
 
 	// ConsumeOptions are used to describe how a new consumer will be configured.

@@ -227,7 +227,7 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 			)
 			requireNoError(t, err)
 
-			err = publisher.Publish(context.TODO(), testParams.routingKey, test.message)
+			err = publisher.Publish(context.Background(), testParams.routingKey, test.message)
 			requireNoError(t, err)
 
 			<-doneChan
@@ -275,7 +275,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+				return p.PublishWithOptions(context.Background(), []string{target}, message)
 			},
 		},
 		"publish to queue passive": {
@@ -299,7 +299,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+				return p.PublishWithOptions(context.Background(), []string{target}, message)
 			},
 			passiveQueue: true,
 		},
@@ -324,7 +324,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+				return p.PublishWithOptions(context.Background(), []string{target}, message)
 			},
 		},
 		"publish to priority queue": {
@@ -349,7 +349,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message, clarimq.WithPublishOptionPriority(clarimq.HighPriority))
+				return p.PublishWithOptions(context.Background(), []string{target}, message, clarimq.WithPublishOptionPriority(clarimq.HighPriority))
 			},
 		},
 		"publish to durable queue": {
@@ -373,7 +373,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+				return p.PublishWithOptions(context.Background(), []string{target}, message)
 			},
 		},
 	}
@@ -673,7 +673,7 @@ func Test_Integration_Consume(t *testing.T) {
 			)
 			requireNoError(t, err)
 
-			err = publisher.Publish(context.TODO(), testParams.routingKey, message)
+			err = publisher.Publish(context.Background(), testParams.routingKey, message)
 			requireNoError(t, err)
 
 			<-doneChan
@@ -735,7 +735,7 @@ func Test_Integration_CustomOptions(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, targets []string) error {
-				return p.PublishWithOptions(context.TODO(), targets, message)
+				return p.PublishWithOptions(context.Background(), targets, message)
 			},
 		},
 		"publish with custom options": {
@@ -772,7 +772,7 @@ func Test_Integration_CustomOptions(t *testing.T) {
 			},
 			publish: func(p *clarimq.Publisher, targets []string) error {
 				return p.PublishWithOptions(
-					context.TODO(),
+					context.Background(),
 					targets,
 					message,
 					clarimq.WithCustomPublishOptions(
@@ -1030,7 +1030,7 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	requireNoError(t, err)
 
 	// publishing a mandatory message with a routing key with out the existence of a binding.
-	err = publisher.Publish(context.TODO(), "does-not-exist", message)
+	err = publisher.Publish(context.Background(), "does-not-exist", message)
 	requireNoError(t, err)
 
 	// the publishing is retured to the return handler.
