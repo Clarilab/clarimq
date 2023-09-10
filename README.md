@@ -281,7 +281,7 @@ When the Publishing Cache is **not set**, the "Publish" and "PublishWithOptions"
 
 To ensure a clean cache (when using an external cache like f.e. redis) the publisher should be closed when exiting. This will call the "Flush()" method of the Publishing Cache implementation. This step is optional and it up to the user to decide.
 
-When implementing the publishing cache, the it must be properly protected from concurrent access by multiple publisher instances to avoid race conditions.
+When implementing the publishing cache, it must be properly protected from concurrent access by multiple publisher instances to avoid race conditions.
 
 _Hint: The "cache" sub-package provides a simple "in-memory-cache" implementation, that can be used for testing, but could also be used in production._
 
