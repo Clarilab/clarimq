@@ -37,15 +37,15 @@ type (
 		BackOffFactor       int
 	}
 
-	// ConnectionSettings holds settings for a RabbitMQ connection.
+	// ConnectionSettings holds settings for a broker connection.
 	ConnectionSettings struct {
-		// UserName contains the username of the RabbitMQ user.
+		// UserName contains the username of the broker user.
 		UserName string
-		// Password contains the password of the RabbitMQ user.
+		// Password contains the password of the broker user.
 		Password string
-		// Host contains the hostname or ip of the RabbitMQ server.
+		// Host contains the hostname or ip of the broker.
 		Host string
-		// Post contains the port number the RabbitMQ server is listening on.
+		// Post contains the port number the broker is listening on.
 		Port int
 	}
 

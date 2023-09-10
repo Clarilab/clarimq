@@ -169,7 +169,7 @@ func (publisher *Publisher) sendMessage(ctx context.Context, routingKeys []strin
 			options.Exchange,
 			key,
 			options.Mandatory,
-			false, // always set to false since rabbitmq does not support immediate publishing
+			false, // always set to false since RabbitMQ does not support immediate publishing
 			message,
 		); err != nil {
 			return fmt.Errorf(errMessage, err)

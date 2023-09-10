@@ -56,8 +56,7 @@ type (
 		dlqNameBase    string
 	}
 
-	// ConsumerOptions are used to configure the consumer
-	// on the rabbit server.
+	// ConsumerOptions are used to configure the consumer.
 	ConsumerOptions struct {
 		// Application or exchange specific fields,
 		// the headers exchange will inspect this field.
@@ -68,7 +67,7 @@ type (
 		AutoAck bool
 		// Ensures that this is the sole consumer from the queue.
 		Exclusive bool
-		// If true, the client does not wait for a reply method. If the server could not complete the method it will raise a channel or connection exception.
+		// If true, the client does not wait for a reply method. If the broker could not complete the method it will raise a channel or connection exception.
 		NoWait bool
 	}
 )
@@ -292,7 +291,7 @@ func WithConsumerOptionHandlerQuantity(concurrency int) ConsumeOption {
 	}
 }
 
-// WithConsumerOptionConsumerName sets the name on the server of this consumer.
+// WithConsumerOptionConsumerName sets the name of the consumer.
 //
 // If unset a random name will be given.
 func WithConsumerOptionConsumerName(consumerName string) ConsumeOption {
@@ -328,7 +327,7 @@ func WithConsumerOptionDeadLetterRetry(options *RetryOptions) ConsumeOption {
 	}
 }
 
-// WithConsumerOptionConsumerAutoAck sets the auto acknowledge property on the server of this consumer.
+// WithConsumerOptionConsumerAutoAck sets the auto acknowledge property of the consumer.
 //
 // Default: false.
 func WithConsumerOptionConsumerAutoAck(autoAck bool) ConsumeOption {
@@ -336,8 +335,8 @@ func WithConsumerOptionConsumerAutoAck(autoAck bool) ConsumeOption {
 }
 
 // WithConsumerOptionConsumerExclusive sets the exclusive property of this consumer, which means
-// the server will ensure that this is the only consumer
-// from this queue. When exclusive is false, the server will fairly distribute
+// the broker will ensure that this is the only consumer
+// from this queue. When exclusive is false, the broker will fairly distribute
 // deliveries across multiple consumers.
 //
 // Default: false.
@@ -346,7 +345,7 @@ func WithConsumerOptionConsumerExclusive(exclusive bool) ConsumeOption {
 }
 
 // WithConsumerOptionNoWait sets the exclusive no-wait property of this consumer, which means
-// it does not wait for the server to confirm the request and
+// it does not wait for the broker to confirm the request and
 // immediately begin deliveries. If it is not possible to consume, a channel
 // exception will be raised and the channel will be closed.
 //

@@ -20,9 +20,9 @@ type QueueOptions struct {
 	AutoDelete bool
 	// If true, the queue is used by only one connection and will be deleted when that connection closes.
 	Exclusive bool
-	// If true, the client does not wait for a reply method. If the server could not complete the method it will raise a channel or connection exception.
+	// If true, the client does not wait for a reply method. If the broker could not complete the method it will raise a channel or connection exception.
 	NoWait bool
-	// If false, a missing queue will be created on the server.
+	// If false, a missing queue will be created on the broker.
 	Passive bool
 	// If true, the queue will be declared if it does not already exist.
 	Declare bool
@@ -48,33 +48,29 @@ func declareQueue(channel *amqp.Channel, options *QueueOptions) error {
 		return nil
 	}
 
-	var err error
-
 	if options.Passive {
-		_, err = channel.QueueDeclarePassive(
+		if _, err := channel.QueueDeclarePassive(
 			options.name,
 			options.Durable,
 			options.AutoDelete,
 			options.Exclusive,
 			options.NoWait,
 			amqp.Table(options.Args),
-		)
-		if err != nil {
+		); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
 		return nil
 	}
 
-	_, err = channel.QueueDeclare(
+	if _, err := channel.QueueDeclare(
 		options.name,
 		options.Durable,
 		options.AutoDelete,
 		options.Exclusive,
 		options.NoWait,
 		amqp.Table(options.Args),
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 

@@ -8,7 +8,7 @@ import (
 )
 
 // ErrNoActiveConnection occurs when there is no active connection while trying to get the failed recovery notification channel.
-var ErrNoActiveConnection = errors.New("no active connection to rabbitmq")
+var ErrNoActiveConnection = errors.New("no active connection to broker")
 
 // ErrPublishFailedChannelClosed occurs when the channel is accessed while being closed.
 var ErrPublishFailedChannelClosed = errors.New("channel is closed")
@@ -25,6 +25,7 @@ var ErrHealthyConnection = errors.New("connection is healthy, no need to reconne
 // ErrInvalidConnection occurs when an invalid connection is passed to a publisher or a consumer.
 var ErrInvalidConnection = errors.New("invalid connection")
 
+// AMQPError is a custom error type that wraps amqp errors.
 type AMQPError amqp.Error
 
 func (e *AMQPError) Error() string {

@@ -6,7 +6,7 @@ import (
 
 type (
 	// PublishingCache is an interface for a cache of messages that
-	// could not be published due to a missing server connection.
+	// could not be published due to a missing broker connection.
 	PublishingCache interface {
 		// Put adds a publishing to the cache.
 		Put(Publishing) error
@@ -147,7 +147,7 @@ func WithPublishOptionContentType(contentType string) PublisherOption {
 
 // WithPublishOptionDeliveryMode sets the message delivery mode. Transient messages will
 // not be restored to durable queues, persistent messages will be restored to
-// durable queues and lost on non-durable queues during server restart. By default publishing's
+// durable queues and lost on non-durable queues during broker restart. By default publishing's
 // are transient.
 func WithPublishOptionDeliveryMode(deliveryMode DeliveryMode) PublisherOption {
 	return func(options *PublisherOptions) { options.PublishingOptions.DeliveryMode = deliveryMode }

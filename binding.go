@@ -19,7 +19,7 @@ type (
 	BindingOptions struct {
 		// Are used by plugins and broker-specific features such as message TTL, queue length limit, etc.
 		Args Table
-		// If true, the client does not wait for a reply method. If the server could not complete the method it will raise a channel or connection exception.
+		// If true, the client does not wait for a reply method. If the broker could not complete the method it will raise a channel or connection exception.
 		NoWait bool
 		// If true, the binding will be declared if it does not already exist.
 		Declare bool
@@ -58,14 +58,13 @@ func declareBindings(channel *amqp.Channel, queueName, exchangeName string, bind
 			continue
 		}
 
-		err := channel.QueueBind(
+		if err := channel.QueueBind(
 			binding.defaultQueueNameOr(queueName),
 			binding.RoutingKey,
 			binding.defaultExchangeNameOr(exchangeName),
 			binding.NoWait,
 			amqp.Table(binding.Args),
-		)
-		if err != nil {
+		); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 	}

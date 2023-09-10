@@ -1258,11 +1258,13 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	publishConn := getConnection(t,
 		clarimq.WithConnectionOptionJSONLogging(publishConnLogBuffer, slog.LevelDebug),
 		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionReconnectInterval(500*time.Millisecond),
 	)
 
 	consumeConn := getConnection(t,
 		clarimq.WithConnectionOptionJSONLogging(consumeConnLogBuffer, slog.LevelDebug),
 		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionReconnectInterval(500*time.Millisecond),
 	)
 
 	t.Cleanup(func() {
@@ -1310,7 +1312,7 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	requireEqual(t, 1, msgCounter)
 
 	// shutting down the rabbitmq container to simulate a connection loss.
-	err = exec.Command("docker", "compose", "down", "rabbitmq").Run()
+	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
 	requireNoError(t, err)
 
 	// bringing the rabbitmq container up again.
@@ -1444,7 +1446,7 @@ func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) 
 	requireEqual(t, 1, msgCounter)
 
 	// shutting down the rabbitmq container to simulate a connection loss.
-	err = exec.Command("docker", "compose", "down", "rabbitmq").Run()
+	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
 	requireNoError(t, err)
 
 	// waiting for the failed recovery notification to finish handling.

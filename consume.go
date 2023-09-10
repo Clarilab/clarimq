@@ -15,7 +15,7 @@ type (
 	}
 
 	// Delivery captures the fields for a previously delivered message resident in
-	// a queue to be delivered by the server to a consumer from Channel. Consume or
+	// a queue to be delivered by the broker to a consumer from Channel. Consume or
 	// Channel.Get.
 	Delivery struct {
 		amqp.Delivery
@@ -65,16 +65,13 @@ func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, option
 func (c *Consumer) Close() error {
 	const errMessage = "failed to unsubscribe consumer: %w"
 
-	var err error
-
 	if c.options.RetryOptions != nil {
-		err = c.closeDeadLetterRetry()
-		if err != nil {
+		if err := c.closeDeadLetterRetry(); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 	}
 
-	if err = c.conn.amqpChannel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
+	if err := c.conn.amqpChannel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -106,7 +103,7 @@ func (c *Consumer) startConsuming() error {
 		c.options.ConsumerOptions.Name,
 		c.options.ConsumerOptions.AutoAck,
 		c.options.ConsumerOptions.Exclusive,
-		false, // not supported by RabbitMQ
+		false, // always set to false since RabbitMQ does not support immediate publishing
 		c.options.ConsumerOptions.NoWait,
 		amqp.Table(c.options.ConsumerOptions.Args),
 	)
@@ -159,20 +156,17 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery) {
 
 		switch c.handleMessage(delivery) {
 		case Ack:
-			err := delivery.Ack(false)
-			if err != nil {
+			if err := delivery.Ack(false); err != nil {
 				c.conn.logger.logError("could not ack message: %v", err)
 			}
 
 		case NackDiscard:
-			err := delivery.Nack(false, false)
-			if err != nil {
+			if err := delivery.Nack(false, false); err != nil {
 				c.conn.logger.logError("could not nack message: %v", err)
 			}
 
 		case NackRequeue:
-			err := delivery.Nack(false, true)
-			if err != nil {
+			if err := delivery.Nack(false, true); err != nil {
 				c.conn.logger.logError("could not nack message: %v", err)
 			}
 
@@ -188,8 +182,7 @@ func (c *Consumer) handleMessage(delivery *Delivery) Action {
 	action := c.handler(delivery)
 
 	if action == NackDiscard && c.options.RetryOptions != nil {
-		action, err = c.handleDeadLetterMessage(delivery)
-		if err != nil {
+		if action, err = c.handleDeadLetterMessage(delivery); err != nil {
 			c.conn.logger.logError("could not handle dead letter message: %v", err)
 		}
 	}
