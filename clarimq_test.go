@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Clarilab/clarimq"
+	"github.com/Clarilab/clarimq/cache"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -226,7 +227,7 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 			)
 			requireNoError(t, err)
 
-			err = publisher.Publish(context.TODO(), testParams.routingKey, test.message)
+			err = publisher.Publish(context.Background(), testParams.routingKey, test.message)
 			requireNoError(t, err)
 
 			<-doneChan
@@ -274,7 +275,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+				return p.PublishWithOptions(context.Background(), []string{target}, message)
 			},
 		},
 		"publish to queue passive": {
@@ -298,7 +299,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+				return p.PublishWithOptions(context.Background(), []string{target}, message)
 			},
 			passiveQueue: true,
 		},
@@ -323,7 +324,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+				return p.PublishWithOptions(context.Background(), []string{target}, message)
 			},
 		},
 		"publish to priority queue": {
@@ -348,7 +349,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message, clarimq.WithPublishOptionPriority(clarimq.HighPriority))
+				return p.PublishWithOptions(context.Background(), []string{target}, message, clarimq.WithPublishOptionPriority(clarimq.HighPriority))
 			},
 		},
 		"publish to durable queue": {
@@ -372,7 +373,7 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, target string) error {
-				return p.PublishWithOptions(context.TODO(), []string{target}, message)
+				return p.PublishWithOptions(context.Background(), []string{target}, message)
 			},
 		},
 	}
@@ -672,7 +673,7 @@ func Test_Integration_Consume(t *testing.T) {
 			)
 			requireNoError(t, err)
 
-			err = publisher.Publish(context.TODO(), testParams.routingKey, message)
+			err = publisher.Publish(context.Background(), testParams.routingKey, message)
 			requireNoError(t, err)
 
 			<-doneChan
@@ -734,7 +735,7 @@ func Test_Integration_CustomOptions(t *testing.T) {
 				)
 			},
 			publish: func(p *clarimq.Publisher, targets []string) error {
-				return p.PublishWithOptions(context.TODO(), targets, message)
+				return p.PublishWithOptions(context.Background(), targets, message)
 			},
 		},
 		"publish with custom options": {
@@ -746,10 +747,10 @@ func Test_Integration_CustomOptions(t *testing.T) {
 
 				return getConnection(t, clarimq.WithCustomConnectionOptions(
 					&clarimq.ConnectionOptions{
-						ReturnHandler:     nil,
-						Config:            &amqpConfig,
-						PrefetchCount:     0,
-						ReconnectInterval: 0,
+						ReturnHandler:    nil,
+						Config:           &amqpConfig,
+						PrefetchCount:    0,
+						RecoveryInterval: 0,
 					},
 				))
 			}(),
@@ -771,28 +772,30 @@ func Test_Integration_CustomOptions(t *testing.T) {
 			},
 			publish: func(p *clarimq.Publisher, targets []string) error {
 				return p.PublishWithOptions(
-					context.TODO(),
+					context.Background(),
 					targets,
 					message,
 					clarimq.WithCustomPublishOptions(
-						&clarimq.PublishOptions{
-							MessageID:     "messageID",
-							CorrelationID: "correlationID",
-							Timestamp:     now,
-							AppID:         "service-name",
-							UserID:        "guest",
-							ContentType:   "text/plain",
-							Mandatory:     false,
-							Headers: clarimq.Table{
-								"test-header": "test-header-value",
+						&clarimq.PublisherOptions{
+							PublishingOptions: &clarimq.PublishOptions{
+								MessageID:     "messageID",
+								CorrelationID: "correlationID",
+								Timestamp:     now,
+								AppID:         "service-name",
+								UserID:        "guest",
+								ContentType:   "text/plain",
+								Mandatory:     false,
+								Headers: clarimq.Table{
+									"test-header": "test-header-value",
+								},
+								Exchange:        clarimq.ExchangeDefault,
+								Expiration:      "200000",
+								ContentEncoding: "",
+								ReplyTo:         "for-rpc-servers",
+								Type:            "",
+								Priority:        clarimq.NoPriority,
+								DeliveryMode:    clarimq.TransientDelivery,
 							},
-							Exchange:        clarimq.ExchangeDefault,
-							Expiration:      "200000",
-							ContentEncoding: "",
-							ReplyTo:         "for-rpc-servers",
-							Type:            "",
-							Priority:        clarimq.NoPriority,
-							DeliveryMode:    clarimq.TransientDelivery,
 						},
 					),
 				)
@@ -1027,7 +1030,7 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	requireNoError(t, err)
 
 	// publishing a mandatory message with a routing key with out the existence of a binding.
-	err = publisher.Publish(context.TODO(), "does-not-exist", message)
+	err = publisher.Publish(context.Background(), "does-not-exist", message)
 	requireNoError(t, err)
 
 	// the publishing is retured to the return handler.
@@ -1232,7 +1235,7 @@ type logEntry struct {
 	Msg   string    `json:"msg"`
 }
 
-func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+func Test_Recovery_AutomaticRecovery(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
 	// used to wait until the handler processed the deliveries.
 	doneChan := make(chan struct{})
 
@@ -1251,15 +1254,17 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	}
 
 	// declaring the connections with JSON logging on debug level enabled.
-	// (later used to compare if the reconnection was successful).
+	// (later used to compare if the recovery was successful).
 	publishConn := getConnection(t,
 		clarimq.WithConnectionOptionJSONLogging(publishConnLogBuffer, slog.LevelDebug),
 		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
 	consumeConn := getConnection(t,
 		clarimq.WithConnectionOptionJSONLogging(consumeConnLogBuffer, slog.LevelDebug),
 		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
 	t.Cleanup(func() {
@@ -1307,16 +1312,16 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	requireEqual(t, 1, msgCounter)
 
 	// shutting down the rabbitmq container to simulate a connection loss.
-	err = exec.Command("docker", "compose", "down", "rabbitmq").Run()
+	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
 	requireNoError(t, err)
 
 	// bringing the rabbitmq container up again.
 	err = exec.Command("docker", "compose", "up", "-d").Run()
 	requireNoError(t, err)
 
-	// While trying to reconnect, the logger writes information about the reconnection state on debug level.
+	// While trying to recover, the logger writes information about the recovery state on debug level.
 	// In the following routines, the buffer given to the logger is read until the msg in the
-	// log-entry states that reconnection was successful.
+	// log-entry states that the recovery was successful.
 
 	wg := &sync.WaitGroup{}
 
@@ -1329,7 +1334,7 @@ func Test_Reconnection_AutomaticReconnect(t *testing.T) { //nolint:paralleltest 
 	// waiting for the both connections to be successfully recovered.
 	wg.Wait()
 
-	// publish a new message to the queue with the reconnected .
+	// publish a new message to the queue after the recovery.
 	err = publisher.Publish(context.Background(), queueName, message)
 	requireNoError(t, err)
 
@@ -1368,20 +1373,20 @@ func watchConnLogBuffer(buffer *testBuffer, wg *sync.WaitGroup) {
 	}
 }
 
-func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
 	// used to wait until the handler processed the deliveries.
 	doneChan := make(chan struct{})
 
 	message := "test-message"
 
-	// declaring the connections with a maximum of 1 reconnection attempts.
+	// declaring the connections with a maximum of 1 recovery attempts.
 	publishConn := getConnection(t,
-		clarimq.WithConnectionOptionMaxReconnectRetries(4),
+		clarimq.WithConnectionOptionMaxRecoveryRetries(4),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 	)
 
 	consumeConn := getConnection(t,
-		clarimq.WithConnectionOptionMaxReconnectRetries(4),
+		clarimq.WithConnectionOptionMaxRecoveryRetries(4),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 	)
 
@@ -1441,7 +1446,7 @@ func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) 
 	requireEqual(t, 1, msgCounter)
 
 	// shutting down the rabbitmq container to simulate a connection loss.
-	err = exec.Command("docker", "compose", "down", "rabbitmq").Run()
+	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
 	requireNoError(t, err)
 
 	// waiting for the failed recovery notification to finish handling.
@@ -1461,14 +1466,14 @@ func Test_Reconnection_AutomaticReconnectFailedTryManualReconnect(t *testing.T) 
 		}
 	}
 
-	// manually reconnecting.
-	err = publishConn.Reconnect()
+	// manually recovering.
+	err = publishConn.Recover()
 	requireNoError(t, err)
 
-	err = consumeConn.Reconnect()
+	err = consumeConn.Recover()
 	requireNoError(t, err)
 
-	// publish a new message to the queue with the reconnected .
+	// publish a new message to the queue after the recovery.
 	err = publisher.Publish(context.Background(), queueName, message)
 	requireNoError(t, err)
 
@@ -1487,6 +1492,88 @@ func handleFailedRecovery(chn <-chan error, wg *sync.WaitGroup) {
 			wg.Done()
 		}
 	}
+}
+
+func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+	message := "test-message"
+
+	publishConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	consumeConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	t.Cleanup(func() {
+		err := publishConn.Close()
+		requireNoError(t, err)
+
+		err = consumeConn.Close()
+		requireNoError(t, err)
+	})
+
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+
+	handler := func(msg *clarimq.Delivery) clarimq.Action {
+		requireEqual(t, message, string(msg.Body))
+
+		wg.Done()
+
+		return clarimq.Ack
+	}
+
+	queueName := stringGen()
+
+	// creating a consumer.
+	_, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+		clarimq.WithQueueOptionDurable(true),
+	)
+	requireNoError(t, err)
+
+	// creating a publisher.
+	publisher, err := clarimq.NewPublisher(publishConn,
+		clarimq.WithPublishOptionMandatory(true),
+		clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
+	)
+	requireNoError(t, err)
+
+	t.Cleanup(func() {
+		err := publisher.Close()
+		requireNoError(t, err)
+	})
+
+	err = publisher.Publish(context.Background(), queueName, message)
+	requireNoError(t, err)
+
+	wg.Wait()
+
+	// shutting down the rabbitmq container to simulate a connection loss.
+	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
+	requireNoError(t, err)
+
+	for i := 0; i < 4; i++ {
+		// publish messages to the queue with while not connected.
+		if err := publisher.Publish(context.Background(), queueName, message); !errors.Is(err, clarimq.ErrPublishFailedChannelClosedCached) {
+			t.Fatal()
+		}
+	}
+
+	// bringing the rabbitmq container up again.
+	err = exec.Command("docker", "compose", "up", "-d").Run()
+	requireNoError(t, err)
+
+	wg.Add(4)
+
+	// waiting for the recovered consumer to process the cached messages.
+	wg.Wait()
+
+	_, err = consumeConn.RemoveQueue(queueName, false, false, false)
+	requireNoError(t, err)
 }
 
 // ##### helper functions: ##########################

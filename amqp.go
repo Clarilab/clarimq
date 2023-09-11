@@ -14,7 +14,7 @@ const (
 const (
 	// Ack default ack this msg after you have successfully processed this delivery.
 	Ack Action = iota
-	// NackDiscard the message will be dropped or delivered to a server configured dead-letter queue.
+	// NackDiscard the message will be dropped or delivered to a broker configured dead-letter queue.
 	NackDiscard
 	// NackRequeue deliver this message to a different consumer.
 	NackRequeue
@@ -60,7 +60,7 @@ type (
 	// Action is an action that occurs after processed this delivery.
 	Action int
 
-	// Return captures a flattened struct of fields returned by the server when a Publishing is unable
+	// Return captures a flattened struct of fields returned by the broker when a publishing is unable
 	// to be delivered due to the `mandatory` flag set and no route found.
 	Return amqp.Return
 

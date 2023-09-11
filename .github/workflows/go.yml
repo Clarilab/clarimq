@@ -10,9 +10,6 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
   
-env:
-  GO_VERSION: 1.21
-
 jobs:
   ci:
     name: Vet, lint and test
@@ -24,7 +21,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: ${{ env.GO_VERSION }}
+        go-version: ">=1.21.0"
 
     - name: Vet
       run: make vet
@@ -39,11 +36,11 @@ jobs:
         curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
         golangci-lint run --out-format=github-actions
 
-    - name: Integration Test
+    - name: Integration Tests
       run: make test_integration
     
-    - name: Reconnection Test
-      run: make test_reconnection
+    - name: Recovery Tests
+      run: make test_recovery
 
   govulncheck:
     runs-on: ubuntu-latest
@@ -52,5 +49,4 @@ jobs:
     - id: govulncheck
       uses: golang/govulncheck-action@v1
       with:
-        go-version-input: ${{ env.GO_VERSION }}
         go-package: ./...

@@ -12,9 +12,8 @@ const (
 func newRandomString() string {
 	bytes := make([]byte, defaultLength)
 
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return ""
+	if _, err := rand.Read(bytes); err != nil {
+		panic(err)
 	}
 
 	return hex.EncodeToString(bytes)

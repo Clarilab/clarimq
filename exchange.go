@@ -7,7 +7,7 @@ import (
 )
 
 // ExchangeOptions are used to configure an exchange.
-// If the Passive flag is set the client will only check if the exchange exists on the server
+// If the Passive flag is set the client will only check if the exchange exists on the broker
 // and that the settings match, no creation attempt will be made.
 type ExchangeOptions struct {
 	// Are used by plugins and broker-specific features such as message TTL, queue length limit, etc.
@@ -22,9 +22,9 @@ type ExchangeOptions struct {
 	AutoDelete bool
 	// If yes, clients cannot publish to this exchange directly. It can only be used with exchange to exchange bindings.
 	Internal bool
-	// If true, the client does not wait for a reply method. If the server could not complete the method it will raise a channel or connection exception.
+	// If true, the client does not wait for a reply method. If the broker could not complete the method it will raise a channel or connection exception.
 	NoWait bool
-	// If false, a missing exchange will be created on the server
+	// If false, a missing exchange will be created on the broker.
 	Passive bool
 	// If true, the exchange will be created only if it does not already exist.
 	Declare bool
@@ -52,7 +52,7 @@ func declareExchange(channel *amqp.Channel, options *ExchangeOptions) error {
 	}
 
 	if options.Passive {
-		err := channel.ExchangeDeclarePassive(
+		if err := channel.ExchangeDeclarePassive(
 			options.Name,
 			options.Kind,
 			options.Durable,
@@ -60,15 +60,14 @@ func declareExchange(channel *amqp.Channel, options *ExchangeOptions) error {
 			options.Internal,
 			options.NoWait,
 			amqp.Table(options.Args),
-		)
-		if err != nil {
+		); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
 		return nil
 	}
 
-	err := channel.ExchangeDeclare(
+	if err := channel.ExchangeDeclare(
 		options.Name,
 		options.Kind,
 		options.Durable,
@@ -76,8 +75,7 @@ func declareExchange(channel *amqp.Channel, options *ExchangeOptions) error {
 		options.Internal,
 		options.NoWait,
 		amqp.Table(options.Args),
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 

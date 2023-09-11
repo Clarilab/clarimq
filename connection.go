@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	closeWGDelta          int    = 2
-	reconnectFailChanSize int    = 32
-	endOfFile             string = "EOF"
+	closeWGDelta int    = 2
+	errChanSize  int    = 32
+	endOfFile    string = "EOF"
 )
 
 type Connection struct {
@@ -28,10 +28,12 @@ type Connection struct {
 
 	connectionCloseWG *sync.WaitGroup
 
-	errChanMU            sync.Mutex
-	errChan              chan error
-	consumerRecoveryChan chan error
+	errChanMU                sync.Mutex
+	errChan                  chan error
+	consumerRecoveryChan     chan error
+	checkPublishingCacheChan chan struct{}
 
+	isPublisher      bool
 	runningConsumers int
 
 	logger *logger
@@ -47,21 +49,21 @@ func NewConnection(uri string, options ...ConnectionOption) (*Connection, error)
 
 	opt := defaultConnectionOptions(uri)
 
-	for i := 0; i < len(options); i++ {
+	for i := range options {
 		options[i](opt)
 	}
 
 	conn := &Connection{
-		connectionCloseWG:    &sync.WaitGroup{},
-		errChan:              make(chan error, reconnectFailChanSize),
-		consumerRecoveryChan: make(chan error),
-		logger:               newLogger(opt.loggers),
-		returnHandler:        opt.ReturnHandler,
-		options:              opt,
+		connectionCloseWG:        &sync.WaitGroup{},
+		errChan:                  make(chan error, errChanSize),
+		consumerRecoveryChan:     make(chan error),
+		checkPublishingCacheChan: make(chan struct{}),
+		logger:                   newLogger(opt.loggers),
+		returnHandler:            opt.ReturnHandler,
+		options:                  opt,
 	}
 
-	err := conn.connect()
-	if err != nil {
+	if err := conn.connect(); err != nil {
 		return nil, fmt.Errorf(errMessage, err)
 	}
 
@@ -80,18 +82,16 @@ func SettingsToURI(settings *ConnectionSettings) string {
 	)
 }
 
-// Close gracefully closes the connection to the server.
+// Close gracefully closes the connection to the broker.
 func (c *Connection) Close() error {
-	const errMessage = "failed to close connection to rabbitmq gracefully: %w"
+	const errMessage = "failed to close the connection to the broker gracefully: %w"
 
 	if c.amqpConnection != nil {
 		c.logger.logDebug("closing connection")
 
 		c.connectionCloseWG.Add(closeWGDelta)
 
-		err := c.amqpConnection.Close()
-
-		if err != nil {
+		if err := c.amqpConnection.Close(); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
@@ -99,8 +99,9 @@ func (c *Connection) Close() error {
 
 		close(c.errChan)
 		close(c.consumerRecoveryChan)
+		close(c.checkPublishingCacheChan)
 
-		c.logger.logInfo("gracefully closed connection to rabbitmq")
+		c.logger.logInfo("gracefully closed connection to the broker")
 	}
 
 	return nil
@@ -111,9 +112,9 @@ func (c *Connection) NotifyErrors() <-chan error {
 	return c.errChan
 }
 
-// Reconnect can be used to manually reconnect to RabbitMQ.
-func (c *Connection) Reconnect() error {
-	const errMessage = "failed to reconnect to rabbitmq: %w"
+// Recover can be used to manually start the recovery.
+func (c *Connection) Recover() error {
+	const errMessage = "failed to recover: %w"
 
 	if err := c.recoverConnection(); err != nil {
 		return fmt.Errorf(errMessage, err)
@@ -126,8 +127,8 @@ func (c *Connection) Reconnect() error {
 	return nil
 }
 
-// RemoveQueue removes the queue from the server including all bindings then purges the messages based on
-// server configuration, returning the number of messages purged.
+// RemoveQueue removes the queue from the broker including all bindings then purges the messages based on
+// broker configuration, returning the number of messages purged.
 //
 // When ifUnused is true, the queue will not be deleted if there are any consumers on the queue.
 // If there are consumers, an error will be returned and the channel will be closed.
@@ -158,14 +159,14 @@ func (c *Connection) RemoveBinding(queueName string, routingKey string, exchange
 	return nil
 }
 
-// RemoveExchange removes the named exchange from the server. When an exchange is deleted all queue bindings
+// RemoveExchange removes the named exchange from the broker. When an exchange is deleted all queue bindings
 // on the exchange are also deleted. If this exchange does not exist, the channel will be closed with an error.
 //
-// When ifUnused is true, the server will only delete the exchange if it has no queue bindings.
-// If the exchange has queue bindings the server does not delete it but close the channel with an exception instead.
+// When ifUnused is true, the broker will only delete the exchange if it has no queue bindings.
+// If the exchange has queue bindings the broker does not delete it but close the channel with an exception instead.
 // Set this to true if you are not the sole owner of the exchange.
 //
-// When noWait is true, do not wait for a server confirmation that the exchange has been deleted.
+// When noWait is true, do not wait for a broker confirmation that the exchange has been deleted.
 // Failing to delete the channel could close the channel. Add a NotifyClose listener to respond to these channel exceptions.
 func (c *Connection) RemoveExchange(name string, ifUnused bool, noWait bool) error {
 	const errMessage = "failed to remove exchange: %w"
@@ -189,7 +190,7 @@ func (c *Connection) DecodeDeliveryBody(delivery Delivery, v any) error {
 }
 
 func (c *Connection) connect() error {
-	const errMessage = "failed to connect to rabbitmq: %w"
+	const errMessage = "failed to connect to broker: %w"
 
 	if c.amqpConnection == nil {
 		if err := c.backOff(
@@ -230,6 +231,7 @@ func (c *Connection) createChannel() error {
 	const errMessage = "failed to create channel: %w"
 
 	var err error
+
 	c.amqpConnMU.Lock()
 	if c.amqpConnection == nil || c.amqpConnection.IsClosed() {
 		c.amqpConnMU.Unlock()
@@ -249,8 +251,7 @@ func (c *Connection) createChannel() error {
 	}
 
 	if c.options.PrefetchCount > 0 {
-		err = c.amqpChannel.Qos(c.options.PrefetchCount, 0, false)
-		if err != nil {
+		if err = c.amqpChannel.Qos(c.options.PrefetchCount, 0, false); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 	}
@@ -295,21 +296,21 @@ func (c *Connection) watchChannelNotifications() {
 			case tag := <-cancelChan:
 				c.logger.logWarn("cancel exception", "cause", tag)
 
-			case rtrn := <-returnChan:
+			case rtn := <-returnChan:
 				if c.returnHandler != nil {
-					c.returnHandler(Return(rtrn))
+					c.returnHandler(Return(rtn))
 
 					continue
 				}
 
 				c.logger.logWarn(
 					"message could not be published",
-					"replyCode", rtrn.ReplyCode,
-					"replyText", rtrn.ReplyText,
-					"messageId", rtrn.MessageId,
-					"correlationId", rtrn.CorrelationId,
-					"exchange", rtrn.Exchange,
-					"routingKey", rtrn.RoutingKey,
+					"replyCode", rtn.ReplyCode,
+					"replyText", rtn.ReplyText,
+					"messageId", rtn.MessageId,
+					"correlationId", rtn.CorrelationId,
+					"exchange", rtn.Exchange,
+					"routingKey", rtn.RoutingKey,
 				)
 			}
 		}
@@ -397,6 +398,10 @@ func (c *Connection) recoverChannel() error {
 		}
 	}
 
+	if c.isPublisher {
+		c.checkPublishingCacheChan <- struct{}{}
+	}
+
 	c.logger.logDebug("successfully recovered channel")
 
 	return nil
@@ -407,8 +412,7 @@ func (c *Connection) recoverConsumer() error {
 
 	c.consumerRecoveryChan <- nil
 
-	err := <-c.consumerRecoveryChan
-	if err != nil {
+	if err := <-c.consumerRecoveryChan; err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -418,24 +422,24 @@ func (c *Connection) recoverConsumer() error {
 }
 
 func (c *Connection) backOff(action func() error) error {
-	const errMessage = "back-off failed %w"
+	const errMessage = "backOff failed %w"
 
 	retry := 0
 
-	for retry <= c.options.MaxReconnectRetries {
+	for retry <= c.options.MaxRecoveryRetries {
 		if action() == nil {
 			break
 		}
 
-		if retry == c.options.MaxReconnectRetries {
+		if retry == c.options.MaxRecoveryRetries {
 			c.logger.logDebug("recovery failed: maximum retries exceeded", "retries", retry)
 
 			return fmt.Errorf(errMessage, ErrMaxRetriesExceeded)
 		}
 
-		delay := time.Duration(c.options.BackOffFactor*retry) * c.options.ReconnectInterval
+		delay := time.Duration(c.options.BackOffFactor*retry) * c.options.RecoveryInterval
 
-		c.logger.logDebug("failed to recover: backing off...", "back-off-time", delay.String())
+		c.logger.logDebug("failed to recover: backing off...", "backOffTime", delay.String())
 
 		time.Sleep(delay)
 
@@ -443,4 +447,11 @@ func (c *Connection) backOff(action func() error) error {
 	}
 
 	return nil
+}
+
+func (c *Connection) isClosed() bool {
+	c.amqpChanMU.Lock()
+	defer c.amqpChanMU.Unlock()
+
+	return c.amqpChannel == nil || c.amqpChannel.IsClosed()
 }

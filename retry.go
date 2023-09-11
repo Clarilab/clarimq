@@ -51,23 +51,20 @@ func defaultDLQOptions(name, dlxName, routingKey string, ttl *time.Duration) *Qu
 func (c *Consumer) setupDeadLetterRetry() error {
 	const errMessage = "failed to setup dead letter exchange retry %w"
 
-	err := c.setupRetryPublisher()
-	if err != nil {
+	if err := c.setupRetryPublisher(); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
 	c.options.RetryOptions.dlxName = dlxPrefix + c.options.ExchangeOptions.Name
 	c.options.RetryOptions.dlqNameBase = dlxPrefix + c.options.QueueOptions.name
 
-	err = declareExchange(c.options.RetryOptions.RetryConn.amqpChannel,
+	if err := declareExchange(c.options.RetryOptions.RetryConn.amqpChannel,
 		defaultDLXOptions(c.options.RetryOptions.dlxName),
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	err = c.setupDeadLetterQueues()
-	if err != nil {
+	if err := c.setupDeadLetterQueues(); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -80,19 +77,17 @@ func (c *Consumer) setupRetryPublisher() error {
 	var err error
 
 	if c.options.RetryOptions.RetryConn == nil {
-		c.options.RetryOptions.RetryConn, err = NewConnection(
+		if c.options.RetryOptions.RetryConn, err = NewConnection(
 			c.conn.options.uri,
 			WithConnectionOptionConnectionName(fmt.Sprintf("%s_%s", c.options.ConsumerOptions.Name, keyRetry)),
-		)
-		if err != nil {
+		); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
 		c.options.RetryOptions.isInternalConn = true
 	}
 
-	c.options.RetryOptions.publisher, err = NewPublisher(c.options.RetryOptions.RetryConn)
-	if err != nil {
+	if c.options.RetryOptions.publisher, err = NewPublisher(c.options.RetryOptions.RetryConn); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -107,23 +102,20 @@ func (c *Consumer) setupDeadLetterQueues() error {
 	// allocating for each retry delay + the binding to the original queue
 	bindings := make([]Binding, 0, len(c.options.RetryOptions.Delays)+1)
 
-	var err error
-
 	// declare and bind queues with ttl values
 	for i := range c.options.RetryOptions.Delays {
 		ttl := &c.options.RetryOptions.Delays[i]
 
 		queueName := fmt.Sprintf("%s_%s", c.options.RetryOptions.dlqNameBase, ttl.String())
 
-		err = declareQueue(c.options.RetryOptions.RetryConn.amqpChannel,
+		if err := declareQueue(c.options.RetryOptions.RetryConn.amqpChannel,
 			defaultDLQOptions(
 				queueName,
 				c.options.ExchangeOptions.Name,
 				routingKey,
 				ttl,
 			),
-		)
-		if err != nil {
+		); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
@@ -145,8 +137,7 @@ func (c *Consumer) setupDeadLetterQueues() error {
 		},
 	)
 
-	err = declareBindings(c.options.RetryOptions.RetryConn.amqpChannel, "", "", bindings)
-	if err != nil {
+	if err := declareBindings(c.options.RetryOptions.RetryConn.amqpChannel, "", "", bindings); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -178,7 +169,7 @@ func (c *Consumer) handleDeadLetterMessage(
 	delivery.Headers[keyRetryCount] = retryCount + 1
 
 	// publish delivery to the next retry queue
-	err := c.options.RetryOptions.publisher.PublishWithOptions(
+	if err := c.options.RetryOptions.publisher.PublishWithOptions(
 		context.Background(),
 		[]string{fmt.Sprintf("%s_%s", c.options.RetryOptions.dlqNameBase, ttl.String())},
 		delivery.Body,
@@ -186,8 +177,7 @@ func (c *Consumer) handleDeadLetterMessage(
 		WithPublishOptionDeliveryMode(PersistentDelivery),
 		WithPublishOptionExchange(c.options.RetryOptions.dlxName),
 		WithPublishOptionHeaders(Table(delivery.Headers)),
-	)
-	if err != nil {
+	); err != nil {
 		return NackRequeue, fmt.Errorf(errMessage, err)
 	}
 
@@ -217,8 +207,7 @@ func (c *Consumer) cleanupDeadLetterRetry() error {
 	const errMessage = "failed to cleanup dead letter exchange retry %w"
 
 	// remove the dead letter exchange
-	err := c.options.RetryOptions.RetryConn.amqpChannel.ExchangeDelete(c.options.RetryOptions.dlxName, false, false)
-	if err != nil {
+	if err := c.options.RetryOptions.RetryConn.amqpChannel.ExchangeDelete(c.options.RetryOptions.dlxName, false, false); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
