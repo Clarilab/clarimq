@@ -30,7 +30,7 @@ To ensure correct escaping of the URI, the **SettingsToURI** function can be use
 #### Note:
 _Although it is possible to publish and consume with one connection, it is best practice to use two separate connections for publisher and consumer activities._
 
-##### Example: Connection with some options:
+##### Example Connection with some options:
 ```Go
 conn, err := clarimq.NewConnection("amqp://user:password@localhost:5672/", 
 	clarimq.WithConnectionOptionConnectionName("app-name-connection"),
@@ -41,7 +41,7 @@ if err != nil {
 }
 ```
 
-##### Example: Connection with custom options:
+##### Example Connection with custom options:
 ```Go
 connectionSettings := &clarimq.ConnectionSettings{
 	UserName: "username",
@@ -73,7 +73,7 @@ if err != nil {
 
 When the connection is no longer needed, it should be closed to conserve resources.
 
-##### Example: 
+##### Example 
 ```Go
 if err := conn.Close(); err != nil {
 	// handle error
@@ -85,7 +85,7 @@ if err := conn.Close(); err != nil {
 The "NotifyErrors()" method provides a channel that returns any errors that may happen concurrently. Mainly custom errors of types **clarimq.AMQPError** and **clarimq.RecoveryFailedError** are returned.
 
 
-##### Example: 
+##### Example 
 ```Go
 handleErrors := func(errChan <-chan error) {
 	for err := range errChan {
@@ -124,7 +124,7 @@ To publish messages a publisher instance needs to be created. A previously creat
 The publisher can be configured by passing needed connector options.
 Also there is the possibility to fully customize the configuration by passing a **PublishOptions** struct with the corresponding option. 
 
-##### Example:
+##### Example
 ```Go
 publisher, err := clarimq.NewPublisher(conn,
 	clarimq.WithPublishOptionAppID("my-application"),
@@ -138,7 +138,7 @@ if err != nil {
 The publisher can then be used to publish messages.
 The target can be a queue name, or a topic if the publisher is configured to publish messages to an exchange.
 
-##### Example: Simple publish:
+##### Example Simple publish:
 ```Go
 if err := publisher.Publish(context.Background(), "my-target", "my-message"); err != nil {
 	// handle error
@@ -148,7 +148,7 @@ if err := publisher.Publish(context.Background(), "my-target", "my-message"); er
 Optionally the **PublishWithOptions** method can be used to configure the publish options just for this specific publish.
 The Method also gives the possibility to publish to multiple targets at once.
 
-##### Example: Publish with options:
+##### Example Publish with options:
 ```Go
 if err := publisher.PublishWithOptions(context.Background(), []string{"my-target-1","my-target-2"}, "my-message",
 	clarimq.WithPublishOptionMessageID("99819a3a-388f-4199-b7e6-cc580d85a2e5"),
@@ -165,7 +165,7 @@ To consume messages a consumer instance needs to be created. A previously create
 The consumer can be configured by passing needed consume options.
 Also there is the possibility to fully customize the configuration by passing a **ConsumeOptions** struct with the corresponding option. 
 
-##### Example: 
+##### Example 
 ```Go
 consumer, err := clarimq.NewConsumer(conn, "my-queue", handler(),
 		clarimq.WithConsumerOptionConsumerName("my-consumer"),
@@ -178,7 +178,7 @@ if err != nil {
 
 The consumer can be used to declare exchanges, queues and queue-bindings:
 
-##### Example: 
+##### Example 
 ```Go
 consumer, err := clarimq.NewConsumer(conn, "my-queue", handler(),
 	clarimq.WithConsumerOptionConsumerName("my-consumer"),
@@ -200,7 +200,7 @@ if err != nil {
 
 The consumer can be closed to stop consuming if needed. The consumer does not need to be explicitly closed for a graceful shutdown if its connection is closed afterwards. However when using the retry functionality without providing a connection, the consumer must be closed for a graceful shutdown of the retry connection to conserve resources.
 
-##### Example: 
+##### Example 
 ```Go
 if err := consumer.Close(); err != nil {
 	// handle error
@@ -214,7 +214,7 @@ The logs are written to a io.Writer that also can be specified.
 
 Note: Multiple loggers can be specified!
 
-##### Example:
+##### Example
 ```Go
 jsonBuff := new(bytes.Buffer)
 textBuff := new(bytes.Buffer)
@@ -234,7 +234,7 @@ When publishing mandatory messages, they will be returned if it is not possible 
 
 If no return handler is specified a log will be written to the logger at warn level.
 
-##### Example: 
+##### Example 
 ```Go
 returnHandler := func(r clarimq.Return) {
 	// handle the return
@@ -254,7 +254,7 @@ if err != nil {
 
 This library provides an automatic recovery with build-in exponential back-off functionality. When the connection to the broker is lost, the recovery will automatically try to reconnect. You can adjust the parameters of the back-off algorithm:
 
-##### Example: 
+##### Example 
 ```Go
 conn, err := clarimq.NewConnection(settings,
 	clarimq.WithConnectionOptionRecoveryInterval(2),    // default is 1 second
@@ -285,9 +285,9 @@ When implementing the publishing cache, it must be properly protected from concu
 
 _Hint: The "cache" sub-package provides a simple "in-memory-cache" implementation, that can be used for testing, but could also be used in production._
 
-##### Example:
+##### Example
 ```Go
-publisher, err = clarimq.NewPublisher(publishConn,
+publisher, err := clarimq.NewPublisher(publishConn,
 	clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
 )
 if err != nil {
@@ -316,7 +316,7 @@ if err = b.publisher.PublishWithOptions(context.Background(), "my-target", "my-m
 
 This library includes a retry functionality with a dead letter exchange and dead letter queues. To use the retry, some parameters have to be set:
 
-##### Example:
+##### Example
 ```Go
 consumeConn, err := clarimq.NewConnection(clarimq.SettingsToURI(settings))
 if err != nil {
