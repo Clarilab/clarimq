@@ -231,7 +231,7 @@ func (publisher *Publisher) watchCheckPublishingCacheChan() {
 					continue
 				}
 
-				if err := publisher.publishCachedMessages(context.Background(), cacheLen); err != nil {
+				if err := publisher.PublishCachedMessages(context.Background(), cacheLen); err != nil {
 					publisher.conn.errChanMU.Lock()
 					publisher.conn.errChan <- err
 					publisher.conn.errChanMU.Unlock()
@@ -243,7 +243,7 @@ func (publisher *Publisher) watchCheckPublishingCacheChan() {
 
 var ErrCacheNotSet = fmt.Errorf("publishing cache is not set")
 
-func (publisher *Publisher) publishCachedMessages(ctx context.Context, cacheLen int) error {
+func (publisher *Publisher) PublishCachedMessages(ctx context.Context, cacheLen int) error {
 	const errMessage = "failed to publish cached messages: %w"
 
 	if publisher.options.PublishingCache == nil {
