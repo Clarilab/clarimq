@@ -180,3 +180,52 @@ func WithConnectionOptionMaxRecoveryRetries(maxRetries int) ConnectionOption {
 func WithConnectionOptionBackOffFactor(factor int) ConnectionOption {
 	return func(options *ConnectionOptions) { options.BackOffFactor = factor }
 }
+
+// SetLoggers provides possibility to add loggers.
+func (c *Connection) SetLoggers(loggers []*slog.Logger) {
+	if len(loggers) > 0 {
+		c.options.loggers = loggers
+	}
+}
+
+// SetReturnHandler provides possibility to set the json encoder.
+func (c *Connection) SetEncoder(encoder JSONEncoder) {
+	if encoder != nil {
+		c.options.codec.Encoder = encoder
+	}
+}
+
+// SetReturnHandler provides possibility to set the json decoder.
+func (c *Connection) SetDecoder(decoder JSONDecoder) {
+	if decoder != nil {
+		c.options.codec.Decoder = decoder
+	}
+}
+
+// SetReturnHandler provides possibility to add a return handler.
+func (c *Connection) SetReturnHandler(returnHandler ReturnHandler) {
+	if returnHandler != nil {
+		c.returnHandler = returnHandler
+	}
+}
+
+// SetRecoveryInterval sets the recovery interval.
+//
+// Default: 1s.
+func (c *Connection) SetRecoveryInterval(interval time.Duration) {
+	c.options.RecoveryInterval = interval
+}
+
+// SetMaxRecoveryRetries sets the limit for maximum retries.
+//
+// Default: 10.
+func (c *Connection) SetMaxRecoveryRetries(maxRetries int) {
+	c.options.MaxRecoveryRetries = maxRetries
+}
+
+// SetBackOffFactor sets the exponential back-off factor.
+//
+// Default: 2.
+func (c *Connection) SetBackOffFactor(factor int) {
+	c.options.BackOffFactor = factor
+}
