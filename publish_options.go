@@ -9,7 +9,7 @@ type (
 	// could not be published due to a missing broker connection.
 	PublishingCache interface {
 		// Put adds a publishing to the cache.
-		Put(Publishing) error
+		Put(p Publishing) error
 		// PopAll gets all publishing's from the cache and removes them.
 		PopAll() ([]Publishing, error)
 		// Len returns the number of publishing in the cache.
