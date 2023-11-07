@@ -1142,7 +1142,7 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 			handler := func(delivery *clarimq.Delivery) clarimq.Action {
 				requireEqual(t, testMessage, string(delivery.Body))
 
-				retryCount, _ := delivery.Headers["x-retry-count"].(int32)
+				retryCount, _ := delivery.Headers["x-retry-count"].(int32) //nolint:revive // test code
 
 				if retryCount < 2 {
 					return clarimq.NackDiscard
