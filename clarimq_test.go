@@ -1033,7 +1033,7 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	err = publisher.Publish(context.Background(), "does-not-exist", message)
 	requireNoError(t, err)
 
-	// the publishing is retured to the return handler.
+	// the publishing is returned to the return handler.
 
 	// waiting for the return handler to process the message.
 	<-doneChan
@@ -1186,6 +1186,40 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 			requireNoError(t, err)
 		})
 	}
+}
+
+func Test_Integration_ConnectionName(t *testing.T) {
+	t.Parallel()
+
+	t.Run("connection name is set", func(t *testing.T) {
+		t.Parallel()
+
+		conn := getConnection(t, clarimq.WithConnectionOptionConnectionName("connection-name"))
+		t.Cleanup(func() {
+			if err := conn.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+
+		if conn.Name() != "connection-name" {
+			t.Errorf("expected connection name to be 'connection-name', got: '%s'", conn.Name())
+		}
+	})
+
+	t.Run("connection name is not set", func(t *testing.T) {
+		t.Parallel()
+
+		conn := getConnection(t)
+		t.Cleanup(func() {
+			if err := conn.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+
+		if !strings.Contains(conn.Name(), "connection_") {
+			t.Errorf("expected connection name to contain 'connection_', got: '%s'", conn.Name())
+		}
+	})
 }
 
 // testBuffer is used as buffer for the logging io.Writer
