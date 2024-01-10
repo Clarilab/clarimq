@@ -34,17 +34,18 @@ func (e *AMQPError) Error() string {
 
 // ErrRecoveryFailed occurs when the recovery failed after a connection loss.
 type RecoveryFailedError struct {
-	Err error
+	Err            error
+	ConnectionName string
 }
 
 // Error implements the Error method of the error interface.
 func (e *RecoveryFailedError) Error() string {
-	var str string
+	str := fmt.Sprintf("failed to recover %s:", e.ConnectionName)
 
 	if e.Err != nil {
-		str = e.Err.Error()
+		str += e.Err.Error()
 	} else {
-		str = "unknown error"
+		str += "unknown error"
 	}
 
 	return str

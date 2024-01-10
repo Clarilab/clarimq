@@ -10,10 +10,12 @@ import (
 )
 
 const (
-	defaultRecoveryInterval   time.Duration = time.Second
-	defaultMaxRecoveryRetries int           = 10
-	defaultBackOffFactor      int           = 2
-	defaultPrefetchCount      int           = 0
+	defaultRecoveryInterval     time.Duration = time.Second
+	defaultMaxRecoveryRetries   int           = 10
+	defaultBackOffFactor        int           = 2
+	defaultPrefetchCount        int           = 0
+	defaultConnectionNamePrefix string        = "connection_"
+	amqpConnectionNameKey       string        = "connection_name"
 )
 
 type (
@@ -60,7 +62,9 @@ func defaultConnectionOptions(uri string) *ConnectionOptions {
 		MaxRecoveryRetries: defaultMaxRecoveryRetries,
 		BackOffFactor:      defaultBackOffFactor,
 		Config: &Config{
-			Properties: make(amqp.Table),
+			Properties: amqp.Table{
+				amqpConnectionNameKey: defaultConnectionNamePrefix + newRandomString(),
+			},
 		},
 		PrefetchCount: defaultPrefetchCount,
 		codec: &codec{
