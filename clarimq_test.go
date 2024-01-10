@@ -991,7 +991,16 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	publishConn := getConnection(
 		t,
 		clarimq.WithConnectionOptionReturnHandler(returnHandler),
-		clarimq.WithConnectionOptionTextLogging(os.Stdout, slog.LevelError),
+		clarimq.WithConnectionOptionLoggers(
+			slog.New(
+				slog.NewTextHandler(
+					os.Stdout,
+					&slog.HandlerOptions{
+						Level: slog.LevelDebug,
+					},
+				),
+			),
+		),
 		clarimq.WithConnectionOptionConnectionName(stringGen()),
 	)
 
@@ -1287,16 +1296,30 @@ func Test_Recovery_AutomaticRecovery(t *testing.T) { //nolint:paralleltest // in
 		buff: new(bytes.Buffer),
 	}
 
+	publishLogger := slog.New(slog.NewJSONHandler(
+		publishConnLogBuffer,
+		&slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		},
+	))
+
+	cunsumeLogger := slog.New(slog.NewJSONHandler(
+		consumeConnLogBuffer,
+		&slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		},
+	))
+
 	// declaring the connections with JSON logging on debug level enabled.
 	// (later used to compare if the recovery was successful).
 	publishConn := getConnection(t,
-		clarimq.WithConnectionOptionJSONLogging(publishConnLogBuffer, slog.LevelDebug),
+		clarimq.WithConnectionOptionLoggers(publishLogger),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
 	consumeConn := getConnection(t,
-		clarimq.WithConnectionOptionJSONLogging(consumeConnLogBuffer, slog.LevelDebug),
+		clarimq.WithConnectionOptionLoggers(cunsumeLogger),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
