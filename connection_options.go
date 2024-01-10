@@ -2,8 +2,6 @@ package clarimq
 
 import (
 	"encoding/json"
-	"io"
-	"log/slog"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -30,7 +28,7 @@ type (
 	// ConnectionOptions are used to describe how a new connection will be created.
 	ConnectionOptions struct {
 		ReturnHandler
-		loggers            []*slog.Logger
+		loggers            []Logger
 		Config             *Config
 		codec              *codec
 		uri                string
@@ -99,36 +97,8 @@ func WithConnectionOptionConnectionName(name string) ConnectionOption {
 	return func(options *ConnectionOptions) { options.Config.Properties.SetClientConnectionName(name) }
 }
 
-// WithConnectionOptionTextLogging enables structured text logging to the given writer.
-func WithConnectionOptionTextLogging(w io.Writer, logLevel slog.Level) ConnectionOption {
-	return func(o *ConnectionOptions) {
-		o.loggers = append(o.loggers,
-			slog.New(slog.NewTextHandler(
-				w,
-				&slog.HandlerOptions{
-					Level: logLevel,
-				},
-			)),
-		)
-	}
-}
-
-// WithConnectionOptionJSONLogging enables structured json logging to the given writer.
-func WithConnectionOptionJSONLogging(w io.Writer, logLevel slog.Level) ConnectionOption {
-	return func(o *ConnectionOptions) {
-		o.loggers = append(o.loggers,
-			slog.New(slog.NewJSONHandler(
-				w,
-				&slog.HandlerOptions{
-					Level: logLevel,
-				},
-			)),
-		)
-	}
-}
-
-// WithConnectionOptionMultipleLoggers adds multiple loggers.
-func WithConnectionOptionMultipleLoggers(loggers []*slog.Logger) ConnectionOption {
+// WithConnectionOptionLoggers adds multiple loggers.
+func WithConnectionOptionLoggers(loggers ...Logger) ConnectionOption {
 	return func(o *ConnectionOptions) {
 		o.loggers = append(o.loggers, loggers...)
 	}
@@ -186,7 +156,7 @@ func WithConnectionOptionBackOffFactor(factor int) ConnectionOption {
 }
 
 // SetLoggers provides possibility to add loggers.
-func (c *Connection) SetLoggers(loggers []*slog.Logger) {
+func (c *Connection) SetLoggers(loggers ...Logger) {
 	if len(loggers) > 0 {
 		c.options.loggers = loggers
 	}
