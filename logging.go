@@ -1,14 +1,18 @@
 package clarimq
 
-import (
-	"log/slog"
-)
-
-type logger struct {
-	loggers []*slog.Logger
+// Logger is an interface that is be used for log messages.
+type Logger interface {
+	Debug(msg string, args ...any)
+	Error(msg string, args ...any)
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
 }
 
-func newLogger(loggers []*slog.Logger) *logger {
+type logger struct {
+	loggers []Logger
+}
+
+func newLogger(loggers []Logger) *logger {
 	return &logger{loggers}
 }
 

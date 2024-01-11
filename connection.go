@@ -107,6 +107,15 @@ func (c *Connection) Close() error {
 	return nil
 }
 
+// Name returns the name of the connection if specified, otherwise returns an empty string.
+func (c *Connection) Name() string {
+	if name, ok := c.options.Config.Properties[amqpConnectionNameKey].(string); ok {
+		return name
+	}
+
+	return ""
+}
+
 // NotifyErrors returns a channel that will return an errors that happen concurrently.
 func (c *Connection) NotifyErrors() <-chan error {
 	return c.errChan
@@ -328,7 +337,7 @@ func (c *Connection) handleClosedConnection(err *amqp.Error) {
 
 	if err := c.recoverConnection(); err != nil {
 		c.errChanMU.Lock()
-		c.errChan <- &RecoveryFailedError{err}
+		c.errChan <- &RecoveryFailedError{err, c.Name()}
 		c.errChanMU.Unlock()
 	}
 }
@@ -352,7 +361,7 @@ func (c *Connection) handleClosedChannel(err *amqp.Error) {
 
 	if err := c.recoverChannel(); err != nil {
 		c.errChanMU.Lock()
-		c.errChan <- &RecoveryFailedError{err}
+		c.errChan <- &RecoveryFailedError{err, c.Name()}
 		c.errChanMU.Unlock()
 	}
 }

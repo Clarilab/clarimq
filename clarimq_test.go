@@ -991,7 +991,16 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	publishConn := getConnection(
 		t,
 		clarimq.WithConnectionOptionReturnHandler(returnHandler),
-		clarimq.WithConnectionOptionTextLogging(os.Stdout, slog.LevelError),
+		clarimq.WithConnectionOptionLoggers(
+			slog.New(
+				slog.NewTextHandler(
+					os.Stdout,
+					&slog.HandlerOptions{
+						Level: slog.LevelDebug,
+					},
+				),
+			),
+		),
 		clarimq.WithConnectionOptionConnectionName(stringGen()),
 	)
 
@@ -1033,7 +1042,7 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	err = publisher.Publish(context.Background(), "does-not-exist", message)
 	requireNoError(t, err)
 
-	// the publishing is retured to the return handler.
+	// the publishing is returned to the return handler.
 
 	// waiting for the return handler to process the message.
 	<-doneChan
@@ -1188,6 +1197,40 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 	}
 }
 
+func Test_Integration_ConnectionName(t *testing.T) {
+	t.Parallel()
+
+	t.Run("connection name is set", func(t *testing.T) {
+		t.Parallel()
+
+		conn := getConnection(t, clarimq.WithConnectionOptionConnectionName("connection-name"))
+		t.Cleanup(func() {
+			if err := conn.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+
+		if conn.Name() != "connection-name" {
+			t.Errorf("expected connection name to be 'connection-name', got: '%s'", conn.Name())
+		}
+	})
+
+	t.Run("connection name is not set", func(t *testing.T) {
+		t.Parallel()
+
+		conn := getConnection(t)
+		t.Cleanup(func() {
+			if err := conn.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+
+		if !strings.Contains(conn.Name(), "connection_") {
+			t.Errorf("expected connection name to contain 'connection_', got: '%s'", conn.Name())
+		}
+	})
+}
+
 // testBuffer is used as buffer for the logging io.Writer
 // with mutex protection for concurrent access.
 type testBuffer struct {
@@ -1253,16 +1296,30 @@ func Test_Recovery_AutomaticRecovery(t *testing.T) { //nolint:paralleltest // in
 		buff: new(bytes.Buffer),
 	}
 
+	publishLogger := slog.New(slog.NewJSONHandler(
+		publishConnLogBuffer,
+		&slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		},
+	))
+
+	cunsumeLogger := slog.New(slog.NewJSONHandler(
+		consumeConnLogBuffer,
+		&slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		},
+	))
+
 	// declaring the connections with JSON logging on debug level enabled.
 	// (later used to compare if the recovery was successful).
 	publishConn := getConnection(t,
-		clarimq.WithConnectionOptionJSONLogging(publishConnLogBuffer, slog.LevelDebug),
+		clarimq.WithConnectionOptionLoggers(publishLogger),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
 	consumeConn := getConnection(t,
-		clarimq.WithConnectionOptionJSONLogging(consumeConnLogBuffer, slog.LevelDebug),
+		clarimq.WithConnectionOptionLoggers(cunsumeLogger),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
