@@ -136,6 +136,52 @@ func (c *Connection) Recover() error {
 	return nil
 }
 
+// Renew can be used to establish a new connection.
+// If new URI is provided, it will be used to renew the connection instead of the current URI.
+func (c *Connection) Renew(uri ...string) error {
+	const errMessage = "failed to renew: %w"
+
+	if len(uri) == 1 {
+		c.options.uriMU.Lock()
+		c.options.uri = uri[0]
+		c.options.uriMU.Unlock()
+	}
+
+	if err := c.closeForRenewal(); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	if err := c.recoverConnection(); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	if err := c.recoverChannel(); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	return nil
+}
+
+func (c *Connection) closeForRenewal() error {
+	const errMessage = "failed to close the connection to the broker gracefully on renewal: %w"
+
+	if c.amqpConnection != nil {
+		c.logger.logDebug("closing connection")
+
+		c.connectionCloseWG.Add(closeWGDelta)
+
+		if err := c.amqpConnection.Close(); err != nil {
+			return fmt.Errorf(errMessage, err)
+		}
+
+		c.connectionCloseWG.Wait()
+
+		c.logger.logDebug("gracefully closed connection to the broker")
+	}
+
+	return nil
+}
+
 // RemoveQueue removes the queue from the broker including all bindings then purges the messages based on
 // broker configuration, returning the number of messages purged.
 //
@@ -224,7 +270,9 @@ func (c *Connection) createConnection() error {
 	var err error
 
 	c.amqpConnMU.Lock()
+	c.options.uriMU.RLock()
 	c.amqpConnection, err = amqp.DialConfig(c.options.uri, amqp.Config(*c.options.Config))
+	c.options.uriMU.RUnlock()
 	c.amqpConnMU.Unlock()
 
 	if err != nil {

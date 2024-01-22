@@ -77,8 +77,12 @@ func (c *Consumer) setupRetryPublisher() error {
 	var err error
 
 	if c.options.RetryOptions.RetryConn == nil {
+		c.conn.options.uriMU.RLock()
+		uri := c.conn.options.uri
+		c.conn.options.uriMU.RUnlock()
+
 		if c.options.RetryOptions.RetryConn, err = NewConnection(
-			c.conn.options.uri,
+			uri,
 			WithConnectionOptionConnectionName(fmt.Sprintf("%s_%s", c.options.ConsumerOptions.Name, keyRetry)),
 		); err != nil {
 			return fmt.Errorf(errMessage, err)
