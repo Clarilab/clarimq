@@ -2,6 +2,11 @@ package clarimq
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
+	"net/url"
+	"strconv"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -32,6 +37,7 @@ type (
 		Config             *Config
 		codec              *codec
 		uri                string
+		uriMU              *sync.RWMutex
 		PrefetchCount      int
 		RecoveryInterval   time.Duration
 		MaxRecoveryRetries int
@@ -53,9 +59,23 @@ type (
 	ReturnHandler func(Return)
 )
 
+// ToURI returns the URI representation of the ConnectionSettings.
+// Includes url escaping for safe usage.
+func (c *ConnectionSettings) ToURI() string {
+	return fmt.Sprintf("amqp://%s:%s@%s/",
+		url.QueryEscape(c.UserName),
+		url.QueryEscape(c.Password),
+		net.JoinHostPort(
+			url.QueryEscape(c.Host),
+			strconv.Itoa(c.Port),
+		),
+	)
+}
+
 func defaultConnectionOptions(uri string) *ConnectionOptions {
 	return &ConnectionOptions{
 		uri:                uri,
+		uriMU:              &sync.RWMutex{},
 		RecoveryInterval:   defaultRecoveryInterval,
 		MaxRecoveryRetries: defaultMaxRecoveryRetries,
 		BackOffFactor:      defaultBackOffFactor,
