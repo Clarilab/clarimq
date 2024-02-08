@@ -30,11 +30,10 @@ type Connection struct {
 
 	errChanMU                sync.Mutex
 	errChan                  chan error
-	consumerRecoveryChan     chan error
+	consumerRecoveryChans    map[string]chan error
 	checkPublishingCacheChan chan struct{}
 
-	isPublisher      bool
-	runningConsumers int
+	isPublisher bool
 
 	logger *logger
 
@@ -56,7 +55,7 @@ func NewConnection(uri string, options ...ConnectionOption) (*Connection, error)
 	conn := &Connection{
 		connectionCloseWG:        &sync.WaitGroup{},
 		errChan:                  make(chan error, errChanSize),
-		consumerRecoveryChan:     make(chan error),
+		consumerRecoveryChans:    make(map[string]chan error),
 		checkPublishingCacheChan: make(chan struct{}),
 		logger:                   newLogger(opt.loggers),
 		returnHandler:            opt.ReturnHandler,
@@ -98,7 +97,6 @@ func (c *Connection) Close() error {
 		c.connectionCloseWG.Wait()
 
 		close(c.errChan)
-		close(c.consumerRecoveryChan)
 		close(c.checkPublishingCacheChan)
 
 		c.logger.logInfo("gracefully closed connection to the broker")
@@ -449,8 +447,8 @@ func (c *Connection) recoverChannel() error {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	if c.runningConsumers > 0 {
-		if err := c.recoverConsumer(); err != nil {
+	if len(c.consumerRecoveryChans) > 0 {
+		if err := c.recoverConsumers(); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 	}
@@ -464,18 +462,28 @@ func (c *Connection) recoverChannel() error {
 	return nil
 }
 
-func (c *Connection) recoverConsumer() error {
+func (c *Connection) recoverConsumers() error {
 	const errMessage = "failed to recover consumer %w"
 
-	c.consumerRecoveryChan <- nil
+	for i := range c.consumerRecoveryChans {
+		c.consumerRecoveryChans[i] <- nil
 
-	if err := <-c.consumerRecoveryChan; err != nil {
-		return fmt.Errorf(errMessage, err)
+		if err := <-c.consumerRecoveryChans[i]; err != nil {
+			return fmt.Errorf(errMessage, err)
+		}
 	}
 
 	c.logger.logDebug("successfully recovered consumer")
 
 	return nil
+}
+
+func (c *Connection) addConsumerRecoveryChan(consumerTag string, ch chan error) {
+	c.consumerRecoveryChans[consumerTag] = ch
+}
+
+func (c *Connection) removeConsumerRecoveryChan(consumerTag string) {
+	delete(c.consumerRecoveryChans, consumerTag)
 }
 
 func (c *Connection) backOff(action func() error) error {
