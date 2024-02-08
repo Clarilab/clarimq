@@ -9,9 +9,10 @@ import (
 type (
 	// Consumer is a consumer for AMQP messages.
 	Consumer struct {
-		conn    *Connection
-		options *ConsumeOptions
-		handler HandlerFunc
+		conn         *Connection
+		options      *ConsumeOptions
+		handler      HandlerFunc
+		recoveryChan chan error
 	}
 
 	// Delivery captures the fields for a previously delivered message resident in
@@ -42,18 +43,19 @@ func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, option
 	opt.QueueOptions.name = queueName
 
 	consumer := &Consumer{
-		conn:    conn,
-		options: opt,
-		handler: handler,
+		conn:         conn,
+		options:      opt,
+		handler:      handler,
+		recoveryChan: make(chan error),
 	}
+
+	conn.addConsumerRecoveryChan(consumer.options.ConsumerOptions.Name, consumer.recoveryChan)
 
 	if err := consumer.startConsuming(); err != nil {
 		return nil, fmt.Errorf(errMessage, err)
 	}
 
-	consumer.watchRecoverConsumerChan()
-
-	consumer.conn.runningConsumers++
+	consumer.watchRecoveryChan()
 
 	return consumer, nil
 }
@@ -75,7 +77,8 @@ func (c *Consumer) Close() error {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	c.conn.runningConsumers--
+	close(c.recoveryChan)
+	c.conn.removeConsumerRecoveryChan(c.options.ConsumerOptions.Name)
 
 	return nil
 }
@@ -190,10 +193,10 @@ func (c *Consumer) handleMessage(delivery *Delivery) Action {
 	return action
 }
 
-func (c *Consumer) watchRecoverConsumerChan() {
+func (c *Consumer) watchRecoveryChan() {
 	go func() {
-		for range c.conn.consumerRecoveryChan {
-			c.conn.consumerRecoveryChan <- c.startConsuming()
+		for range c.recoveryChan {
+			c.recoveryChan <- c.startConsuming()
 		}
 	}()
 }
