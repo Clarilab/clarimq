@@ -1,6 +1,7 @@
 package clarimq
 
 import (
+	"context"
 	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -118,7 +119,7 @@ func (c *Consumer) startConsuming() error {
 		go c.handlerRoutine(deliveries)
 	}
 
-	c.conn.logger.logDebug(fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
+	c.conn.logger.logDebug(context.Background(), fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
 
 	return nil
 }
@@ -146,7 +147,7 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery) {
 		delivery := &Delivery{delivery}
 
 		if c.conn.amqpChannel.IsClosed() {
-			c.conn.logger.logDebug("message handler stopped: channel is closed")
+			c.conn.logger.logDebug(context.Background(), "message handler stopped: channel is closed")
 
 			break
 		}
@@ -160,17 +161,17 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery) {
 		switch c.handleMessage(delivery) {
 		case Ack:
 			if err := delivery.Ack(false); err != nil {
-				c.conn.logger.logError("could not ack message: %v", err)
+				c.conn.logger.logError(context.Background(), "could not ack message: %v", err)
 			}
 
 		case NackDiscard:
 			if err := delivery.Nack(false, false); err != nil {
-				c.conn.logger.logError("could not nack message: %v", err)
+				c.conn.logger.logError(context.Background(), "could not nack message: %v", err)
 			}
 
 		case NackRequeue:
 			if err := delivery.Nack(false, true); err != nil {
-				c.conn.logger.logError("could not nack message: %v", err)
+				c.conn.logger.logError(context.Background(), "could not nack message: %v", err)
 			}
 
 		case Manual:
@@ -186,7 +187,7 @@ func (c *Consumer) handleMessage(delivery *Delivery) Action {
 
 	if action == NackDiscard && c.options.RetryOptions != nil {
 		if action, err = c.handleDeadLetterMessage(delivery); err != nil {
-			c.conn.logger.logError("could not handle dead letter message: %v", err)
+			c.conn.logger.logError(context.Background(), "could not handle dead letter message: %v", err)
 		}
 	}
 

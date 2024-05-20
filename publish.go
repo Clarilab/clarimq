@@ -2,6 +2,7 @@ package clarimq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -241,7 +242,7 @@ func (publisher *Publisher) watchCheckPublishingCacheChan() {
 	}()
 }
 
-var ErrCacheNotSet = fmt.Errorf("publishing cache is not set")
+var ErrCacheNotSet = errors.New("publishing cache is not set")
 
 func (publisher *Publisher) PublishCachedMessages(ctx context.Context, cacheLen int) error {
 	const errMessage = "failed to publish cached messages: %w"
@@ -277,7 +278,7 @@ func (publisher *Publisher) PublishCachedMessages(ctx context.Context, cacheLen 
 		}
 	}
 
-	publisher.conn.logger.logDebug("published messages from cache", "cachedMessagesPublished", cacheLen)
+	publisher.conn.logger.logDebug(context.Background(), "published messages from cache", "cachedMessagesPublished", cacheLen)
 
 	return nil
 }

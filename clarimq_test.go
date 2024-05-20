@@ -440,7 +440,7 @@ func Test_Integration_Consume(t *testing.T) {
 		getConsumer     func(*clarimq.Connection, clarimq.HandlerFunc, *testParams) (*clarimq.Consumer, error)
 	}{
 		"consume with Ack": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+			deliveryHandler: func(expectedMessage any, _ int, doneChan chan struct{}) clarimq.HandlerFunc {
 				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
@@ -468,7 +468,7 @@ func Test_Integration_Consume(t *testing.T) {
 			},
 		},
 		"consume with NackDisgard": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+			deliveryHandler: func(expectedMessage any, _ int, doneChan chan struct{}) clarimq.HandlerFunc {
 				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
@@ -527,7 +527,7 @@ func Test_Integration_Consume(t *testing.T) {
 			},
 		},
 		"consume with Manual": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+			deliveryHandler: func(expectedMessage any, _ int, doneChan chan struct{}) clarimq.HandlerFunc {
 				return func(delivery *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(delivery.Body))
 					requireEqual(t, "text/plain", delivery.ContentType)
@@ -558,7 +558,7 @@ func Test_Integration_Consume(t *testing.T) {
 			},
 		},
 		"consume with AutoAck": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+			deliveryHandler: func(expectedMessage any, _ int, doneChan chan struct{}) clarimq.HandlerFunc {
 				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
@@ -584,7 +584,7 @@ func Test_Integration_Consume(t *testing.T) {
 			},
 		},
 		"consume with consumer NoWait": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+			deliveryHandler: func(expectedMessage any, _ int, doneChan chan struct{}) clarimq.HandlerFunc {
 				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
@@ -610,7 +610,7 @@ func Test_Integration_Consume(t *testing.T) {
 			},
 		},
 		"consume with multiple message handlers": {
-			deliveryHandler: func(expectedMessage any, counter int, doneChan chan struct{}) clarimq.HandlerFunc {
+			deliveryHandler: func(expectedMessage any, _ int, doneChan chan struct{}) clarimq.HandlerFunc {
 				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
@@ -832,7 +832,7 @@ func Test_Integration_CustomOptions(t *testing.T) {
 				targets[0],
 				test.deliveryHandler(message, wg),
 				clarimq.WithQueueOptionAutoDelete(true),
-				clarimq.WithConsumerOptionConsumerName(fmt.Sprintf("my_consumer_%s", stringGen())),
+				clarimq.WithConsumerOptionConsumerName("my_consumer_%s"+stringGen()),
 			)
 			requireNoError(t, err)
 
@@ -991,16 +991,7 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	publishConn := getConnection(
 		t,
 		clarimq.WithConnectionOptionReturnHandler(returnHandler),
-		clarimq.WithConnectionOptionLoggers(
-			slog.New(
-				slog.NewTextHandler(
-					os.Stdout,
-					&slog.HandlerOptions{
-						Level: slog.LevelDebug,
-					},
-				),
-			),
-		),
+		clarimq.WithConnectionOptionLoggers(newTestLogger(nil)),
 		clarimq.WithConnectionOptionConnectionName(stringGen()),
 	)
 
@@ -1097,7 +1088,7 @@ func Test_Integration_DecodeDeliveryBody(t *testing.T) {
 
 			var result testData
 
-			err = test.conn.DecodeDeliveryBody(delivery, &result)
+			err := test.conn.DecodeDeliveryBody(delivery, &result)
 			requireNoError(t, err)
 
 			requireEqual(t, message, result)
@@ -1296,30 +1287,16 @@ func Test_Recovery_AutomaticRecovery(t *testing.T) { //nolint:paralleltest // in
 		buff: new(bytes.Buffer),
 	}
 
-	publishLogger := slog.New(slog.NewJSONHandler(
-		publishConnLogBuffer,
-		&slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		},
-	))
-
-	cunsumeLogger := slog.New(slog.NewJSONHandler(
-		consumeConnLogBuffer,
-		&slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		},
-	))
-
 	// declaring the connections with JSON logging on debug level enabled.
 	// (later used to compare if the recovery was successful).
 	publishConn := getConnection(t,
-		clarimq.WithConnectionOptionLoggers(publishLogger),
+		clarimq.WithConnectionOptionLoggers(newTestLogger(publishConnLogBuffer)),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
 	consumeConn := getConnection(t,
-		clarimq.WithConnectionOptionLoggers(cunsumeLogger),
+		clarimq.WithConnectionOptionLoggers(newTestLogger(consumeConnLogBuffer)),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
@@ -1684,4 +1661,42 @@ func stringGen() string {
 	}
 
 	return hex.EncodeToString(buffer)
+}
+
+type testLogger struct {
+	*slog.Logger
+}
+
+func newTestLogger(logWriter io.Writer) *testLogger {
+	if logWriter == nil {
+		logWriter = os.Stdout
+	}
+
+	return &testLogger{
+		slog.New(
+			slog.NewJSONHandler(
+				logWriter, &slog.HandlerOptions{Level: slog.LevelDebug},
+			),
+		),
+	}
+}
+
+func (l *testLogger) Error(ctx context.Context, msg string, err error, args ...any) {
+	if err != nil {
+		msg = fmt.Sprintf("%s: %s", msg, err)
+	}
+
+	l.Log(ctx, slog.LevelError, msg, args...)
+}
+
+func (l *testLogger) Info(ctx context.Context, msg string, args ...any) {
+	l.Log(ctx, slog.LevelInfo, msg, args...)
+}
+
+func (l *testLogger) Debug(ctx context.Context, msg string, args ...any) {
+	l.Log(ctx, slog.LevelDebug, msg, args...)
+}
+
+func (l *testLogger) Warn(ctx context.Context, msg string, args ...any) {
+	l.Log(ctx, slog.LevelWarn, msg, args...)
 }

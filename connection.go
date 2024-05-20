@@ -1,6 +1,7 @@
 package clarimq
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
@@ -86,7 +87,9 @@ func (c *Connection) Close() error {
 	const errMessage = "failed to close the connection to the broker gracefully: %w"
 
 	if c.amqpConnection != nil {
-		c.logger.logDebug("closing connection")
+		logCtx := context.Background()
+
+		c.logger.logDebug(logCtx, "closing connection")
 
 		c.connectionCloseWG.Add(closeWGDelta)
 
@@ -99,7 +102,7 @@ func (c *Connection) Close() error {
 		close(c.errChan)
 		close(c.checkPublishingCacheChan)
 
-		c.logger.logInfo("gracefully closed connection to the broker")
+		c.logger.logInfo(logCtx, "gracefully closed connection to the broker")
 	}
 
 	return nil
@@ -164,7 +167,9 @@ func (c *Connection) closeForRenewal() error {
 	const errMessage = "failed to close the connection to the broker gracefully on renewal: %w"
 
 	if c.amqpConnection != nil {
-		c.logger.logDebug("closing connection")
+		logCtx := context.Background()
+
+		c.logger.logDebug(logCtx, "closing connection")
 
 		c.connectionCloseWG.Add(closeWGDelta)
 
@@ -174,7 +179,7 @@ func (c *Connection) closeForRenewal() error {
 
 		c.connectionCloseWG.Wait()
 
-		c.logger.logDebug("gracefully closed connection to the broker")
+		c.logger.logDebug(logCtx, "gracefully closed connection to the broker")
 	}
 
 	return nil
@@ -329,7 +334,7 @@ func (c *Connection) watchConnectionNotifications() {
 				return
 
 			case block := <-blockChan:
-				c.logger.logWarn("connection exception", "cause", block.Reason)
+				c.logger.logWarn(context.Background(), "connection exception", "cause", block.Reason)
 			}
 		}
 	}()
@@ -349,7 +354,7 @@ func (c *Connection) watchChannelNotifications() {
 				return
 
 			case tag := <-cancelChan:
-				c.logger.logWarn("cancel exception", "cause", tag)
+				c.logger.logWarn(context.Background(), "cancel exception", "cause", tag)
 
 			case rtn := <-returnChan:
 				if c.returnHandler != nil {
@@ -359,6 +364,7 @@ func (c *Connection) watchChannelNotifications() {
 				}
 
 				c.logger.logWarn(
+					context.Background(),
 					"message could not be published",
 					"replyCode", rtn.ReplyCode,
 					"replyText", rtn.ReplyText,
@@ -374,7 +380,7 @@ func (c *Connection) watchChannelNotifications() {
 
 func (c *Connection) handleClosedConnection(err *amqp.Error) {
 	if err == nil {
-		c.logger.logDebug("connection gracefully closed")
+		c.logger.logDebug(context.Background(), "connection gracefully closed")
 
 		c.connectionCloseWG.Done()
 
@@ -389,15 +395,17 @@ func (c *Connection) handleClosedConnection(err *amqp.Error) {
 }
 
 func (c *Connection) handleClosedChannel(err *amqp.Error) {
+	logCtx := context.Background()
+
 	if err == nil {
-		c.logger.logDebug("channel gracefully closed")
+		c.logger.logDebug(logCtx, "channel gracefully closed")
 
 		c.connectionCloseWG.Done()
 
 		return
 	}
 
-	c.logger.logDebug("channel unexpectedly closed", "cause", err)
+	c.logger.logDebug(logCtx, "channel unexpectedly closed", "cause", err)
 
 	amqpErr := AMQPError(*err)
 
@@ -427,7 +435,7 @@ func (c *Connection) recoverConnection() error {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	c.logger.logDebug("successfully recovered connection")
+	c.logger.logDebug(context.Background(), "successfully recovered connection")
 
 	return nil
 }
@@ -457,7 +465,7 @@ func (c *Connection) recoverChannel() error {
 		c.checkPublishingCacheChan <- struct{}{}
 	}
 
-	c.logger.logDebug("successfully recovered channel")
+	c.logger.logDebug(context.Background(), "successfully recovered channel")
 
 	return nil
 }
@@ -473,7 +481,7 @@ func (c *Connection) recoverConsumers() error {
 		}
 	}
 
-	c.logger.logDebug("successfully recovered consumer")
+	c.logger.logDebug(context.Background(), "successfully recovered consumer")
 
 	return nil
 }
@@ -492,19 +500,21 @@ func (c *Connection) backOff(action func() error) error {
 	retry := 0
 
 	for retry <= c.options.MaxRecoveryRetries {
+		logCtx := context.Background()
+
 		if action() == nil {
 			break
 		}
 
 		if retry == c.options.MaxRecoveryRetries {
-			c.logger.logDebug("recovery failed: maximum retries exceeded", "retries", retry)
+			c.logger.logDebug(logCtx, "recovery failed: maximum retries exceeded", "retries", retry)
 
 			return fmt.Errorf(errMessage, ErrMaxRetriesExceeded)
 		}
 
 		delay := time.Duration(c.options.BackOffFactor*retry) * c.options.RecoveryInterval
 
-		c.logger.logDebug("failed to recover: backing off...", "backOffTime", delay.String())
+		c.logger.logDebug(logCtx, "failed to recover: backing off...", "backOffTime", delay.String())
 
 		time.Sleep(delay)
 
