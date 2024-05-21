@@ -226,7 +226,7 @@ func (c *Consumer) cleanupDeadLetterRetry() error {
 			return fmt.Errorf(errMessage, err)
 		}
 
-		c.conn.logger.logDebug("dead letter queue removed due to cleanup", "purgedMessages", removed)
+		c.conn.logger.logDebug(context.Background(), "dead letter queue removed due to cleanup", "purgedMessages", removed)
 	}
 
 	return nil
