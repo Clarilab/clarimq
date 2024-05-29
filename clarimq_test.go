@@ -467,7 +467,7 @@ func Test_Integration_Consume(t *testing.T) {
 				)
 			},
 		},
-		"consume with NackDisgard": {
+		"consume with NackDiscard": {
 			deliveryHandler: func(expectedMessage any, _ int, doneChan chan struct{}) clarimq.HandlerFunc {
 				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
@@ -1142,7 +1142,7 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 			handler := func(delivery *clarimq.Delivery) clarimq.Action {
 				requireEqual(t, testMessage, string(delivery.Body))
 
-				retryCount, _ := delivery.Headers["x-retry-count"].(int32) //nolint:revive // test code
+				retryCount, _ := delivery.Headers["x-retry-count"].(int64) //nolint:revive // test code
 
 				if retryCount < 2 {
 					return clarimq.NackDiscard
@@ -1162,15 +1162,9 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 				clarimq.WithQueueOptionAutoDelete(true),
 				clarimq.WithConsumerOptionDeadLetterRetry(
 					&clarimq.RetryOptions{
-						RetryConn: test.conn,
-						Delays: []time.Duration{
-							time.Second,
-							time.Second * 2,
-							time.Second * 3,
-							time.Second * 4,
-							time.Second * 5,
-						},
-						MaxRetries: 5,
+						RetryConn:  test.conn,
+						Delays:     []time.Duration{time.Second},
+						MaxRetries: 2,
 						Cleanup:    true,
 					},
 				),
@@ -1608,6 +1602,189 @@ func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // inte
 
 	_, err = consumeConn.RemoveQueue(queueName, false, false, false)
 	requireNoError(t, err)
+}
+
+func Test_MaxRetriesExceededHandler(t *testing.T) {
+	t.Parallel()
+
+	message := "test-message"
+
+	publishConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	// declaring a mutex protected consumeConnLogBuffer.
+	consumeConnLogBuffer := &testBuffer{
+		mtx:  new(sync.Mutex),
+		buff: new(bytes.Buffer),
+	}
+
+	consumeConn := getConnection(t,
+		clarimq.WithConnectionOptionLoggers(newTestLogger(consumeConnLogBuffer)),
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	t.Cleanup(func() {
+		err := publishConn.Close()
+		requireNoError(t, err)
+
+		err = consumeConn.Close()
+		requireNoError(t, err)
+	})
+
+	t.Run("no error", func(t *testing.T) {
+		t.Parallel()
+
+		wg := new(sync.WaitGroup)
+
+		wg.Add(1)
+
+		handler := func(msg *clarimq.Delivery) clarimq.Action {
+			requireEqual(t, message, string(msg.Body))
+
+			// always discard the message to requeue via dlx-exchange.
+			return clarimq.NackDiscard
+		}
+
+		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
+			requireEqual(t, message, string(delivery.Body))
+
+			wg.Done()
+
+			return nil
+		}
+
+		queueName := stringGen()
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+			clarimq.WithConsumerOptionDeadLetterRetry(&clarimq.RetryOptions{
+				RetryConn:                 publishConn,
+				MaxRetries:                2,
+				Delays:                    []time.Duration{time.Second},
+				MaxRetriesExceededHandler: maxRetriesExceededHandler,
+			}),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		// creating a publisher.
+		publisher, err := clarimq.NewPublisher(publishConn,
+			clarimq.WithPublishOptionMandatory(true),
+			clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := publisher.Close()
+			requireNoError(t, err)
+		})
+
+		// publish the message.
+		err = publisher.Publish(context.Background(), queueName, message)
+		requireNoError(t, err)
+
+		// waiting for the maxRetriesExceededHandler to handle the max retries exceed "case".
+		wg.Wait()
+	})
+
+	t.Run("with error", func(t *testing.T) {
+		t.Parallel()
+
+		wg := new(sync.WaitGroup)
+
+		wg.Add(1)
+
+		handler := func(msg *clarimq.Delivery) clarimq.Action {
+			requireEqual(t, message, string(msg.Body))
+
+			// always discard the message to requeue via dlx-exchange.
+			return clarimq.NackDiscard
+		}
+
+		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
+			requireEqual(t, message, string(delivery.Body))
+
+			return errors.New("error-from-max-retries-exceeded-handler") //nolint:goerr113 // test code
+		}
+
+		queueName := stringGen()
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+			clarimq.WithConsumerOptionDeadLetterRetry(&clarimq.RetryOptions{
+				RetryConn:                 publishConn,
+				MaxRetries:                2,
+				Delays:                    []time.Duration{time.Second}, // 1 second to keep testing short
+				MaxRetriesExceededHandler: maxRetriesExceededHandler,
+			}),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		// creating a publisher.
+		publisher, err := clarimq.NewPublisher(publishConn,
+			clarimq.WithPublishOptionMandatory(true),
+			clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := publisher.Close()
+			requireNoError(t, err)
+		})
+
+		// publish the message.
+		err = publisher.Publish(context.Background(), queueName, message)
+		requireNoError(t, err)
+
+		// read the log buffer and check if the error from the maxRetriesExceededHandler was logged.
+		func(buffer *testBuffer) {
+			defer wg.Done()
+
+			for {
+				line, err := buffer.ReadBytes('\n')
+				if errors.Is(err, io.EOF) {
+					continue
+				}
+
+				var logEntry logEntry
+
+				_ = json.Unmarshal(line, &logEntry)
+
+				if buffer.Len() == 0 {
+					buffer.Reset()
+				}
+
+				if strings.Contains(logEntry.Msg, "error-from-max-retries-exceeded-handler") {
+					return
+				}
+			}
+		}(consumeConnLogBuffer)
+
+		// waiting for the maxRetriesExceededHandler error to be logged.
+		wg.Wait()
+	})
 }
 
 // ##### helper functions: ##########################
