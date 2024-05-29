@@ -21,7 +21,7 @@ type Publisher struct {
 	conn              *Connection
 	options           *PublisherOptions
 	encoder           JSONEncoder
-	publishingCacheMU sync.Mutex
+	publishingCacheMU *sync.Mutex
 }
 
 // Creates a new Publisher instance. Options can be passed to customize the behavior of the Publisher.
@@ -46,6 +46,10 @@ func NewPublisher(conn *Connection, options ...PublisherOption) (*Publisher, err
 		encoder: conn.options.codec.Encoder,
 	}
 
+	if publisher.options.PublishingCache != nil {
+		publisher.publishingCacheMU = new(sync.Mutex)
+	}
+
 	publisher.watchCheckPublishingCacheChan()
 
 	return publisher, nil
@@ -58,12 +62,14 @@ func NewPublisher(conn *Connection, options ...PublisherOption) (*Publisher, err
 func (publisher *Publisher) Close() error {
 	const errMessage = "failed to close publisher: %w"
 
-	publisher.publishingCacheMU.Lock()
-	err := publisher.options.PublishingCache.Flush()
-	publisher.publishingCacheMU.Unlock()
+	if publisher.options.PublishingCache != nil {
+		publisher.publishingCacheMU.Lock()
+		defer publisher.publishingCacheMU.Unlock()
 
-	if err != nil {
-		return fmt.Errorf(errMessage, err)
+		err := publisher.options.PublishingCache.Flush()
+		if err != nil {
+			return fmt.Errorf(errMessage, err)
+		}
 	}
 
 	return nil
@@ -242,6 +248,7 @@ func (publisher *Publisher) watchCheckPublishingCacheChan() {
 	}()
 }
 
+// ErrCacheNotSet occurs when the publishing cache is not set.
 var ErrCacheNotSet = errors.New("publishing cache is not set")
 
 func (publisher *Publisher) PublishCachedMessages(ctx context.Context, cacheLen int) error {
