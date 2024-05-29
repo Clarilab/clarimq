@@ -153,13 +153,22 @@ func (c *Consumer) handleDeadLetterMessage(
 ) (Action, error) {
 	const errMessage = "failed to handle dead letter exchange message %w"
 
-	retryCount, ok := delivery.Headers[keyRetryCount].(int32)
+	retryCount, ok := delivery.Headers[keyRetryCount].(int64)
 	if !ok {
 		retryCount = 0
 	}
 
-	// drop the event after max retries exceeded
-	if int64(retryCount) >= c.options.RetryOptions.MaxRetries {
+	maxRetriesExceeded := retryCount >= c.options.RetryOptions.MaxRetries
+
+	switch {
+	case maxRetriesExceeded && c.options.RetryOptions.MaxRetriesExceededHandler != nil:
+		if err := c.options.RetryOptions.MaxRetriesExceededHandler(delivery); err != nil {
+			return NackDiscard, fmt.Errorf(errMessage, err)
+		}
+
+		fallthrough
+
+	case maxRetriesExceeded:
 		return NackDiscard, nil
 	}
 
