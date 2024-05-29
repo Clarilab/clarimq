@@ -29,8 +29,10 @@ type Connection struct {
 
 	connectionCloseWG *sync.WaitGroup
 
-	errChanMU                sync.Mutex
-	errChan                  chan error
+	errChanMU sync.Mutex
+	errChan   chan error
+
+	consumerRecoveryChansMU  sync.Mutex
 	consumerRecoveryChans    map[string]chan error
 	checkPublishingCacheChan chan struct{}
 
@@ -487,10 +489,16 @@ func (c *Connection) recoverConsumers() error {
 }
 
 func (c *Connection) addConsumerRecoveryChan(consumerTag string, ch chan error) {
+	c.consumerRecoveryChansMU.Lock()
+	defer c.consumerRecoveryChansMU.Unlock()
+
 	c.consumerRecoveryChans[consumerTag] = ch
 }
 
 func (c *Connection) removeConsumerRecoveryChan(consumerTag string) {
+	c.consumerRecoveryChansMU.Lock()
+	defer c.consumerRecoveryChansMU.Unlock()
+
 	delete(c.consumerRecoveryChans, consumerTag)
 }
 
