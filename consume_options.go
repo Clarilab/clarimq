@@ -48,8 +48,10 @@ type (
 		MaxRetries int64
 		// When enabled all retry related queues and exchanges associated when the consumer gets closed.
 		//
-		// Warning: Exiting messages on the retry queues will be purged.
+		// Warning: Existing messages on the retry queues will be purged.
 		Cleanup bool
+
+		MaxRetriesExceededHandler MaxRetriesExceededHandler
 
 		publisher      *Publisher
 		isInternalConn bool
@@ -71,6 +73,8 @@ type (
 		// If true, the client does not wait for a reply method. If the broker could not complete the method it will raise a channel or connection exception.
 		NoWait bool
 	}
+
+	MaxRetriesExceededHandler func(delivery *Delivery) error
 )
 
 // defaultConsumerOptions describes the options that will be used when a value isn't provided.
