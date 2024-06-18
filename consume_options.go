@@ -35,6 +35,9 @@ type (
 		Bindings        []Binding
 		// The number of message handlers, that will run concurrently.
 		HandlerQuantity int
+		// If true, the consumer will start consuming messages instantly after successful creation.
+		// Default: false.
+		ConsumeAfterCreation bool
 	}
 
 	// RetryOptions are used to describe how the retry will be configured.
@@ -357,4 +360,10 @@ func WithConsumerOptionConsumerExclusive(exclusive bool) ConsumeOption {
 // Default: false.
 func WithConsumerOptionNoWait(noWait bool) ConsumeOption {
 	return func(options *ConsumeOptions) { options.ConsumerOptions.NoWait = noWait }
+}
+
+// WithConsumerOptionConsumeAfterCreation sets the consume after creation property of the consumer.
+// If true the consumer will immediately start consuming messages from the queue after creation.
+func WithConsumerOptionConsumeAfterCreation(consumeAfterCreation bool) ConsumeOption {
+	return func(options *ConsumeOptions) { options.ConsumeAfterCreation = consumeAfterCreation }
 }

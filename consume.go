@@ -14,6 +14,7 @@ type (
 		options      *ConsumeOptions
 		handler      HandlerFunc
 		recoveryChan chan error
+		isConsuming  bool
 	}
 
 	// Delivery captures the fields for a previously delivered message resident in
@@ -52,11 +53,15 @@ func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, option
 
 	conn.addConsumerRecoveryChan(consumer.options.ConsumerOptions.Name, consumer.recoveryChan)
 
-	if err := consumer.startConsuming(); err != nil {
+	if err := consumer.setupConsumer(); err != nil {
 		return nil, fmt.Errorf(errMessage, err)
 	}
 
-	consumer.watchRecoveryChan()
+	if consumer.options.ConsumeAfterCreation {
+		if err := consumer.Start(); err != nil {
+			return nil, fmt.Errorf(errMessage, err)
+		}
+	}
 
 	return consumer, nil
 }
@@ -81,11 +86,13 @@ func (c *Consumer) Close() error {
 	close(c.recoveryChan)
 	c.conn.removeConsumerRecoveryChan(c.options.ConsumerOptions.Name)
 
+	c.isConsuming = false
+
 	return nil
 }
 
-func (c *Consumer) startConsuming() error {
-	const errMessage = "failed to start consuming: %w"
+func (c *Consumer) setupConsumer() error {
+	const errMessage = "failed to setup consumer: %w"
 
 	if err := handleDeclarations(
 		c.conn.amqpChannel,
@@ -101,6 +108,23 @@ func (c *Consumer) startConsuming() error {
 			return fmt.Errorf(errMessage, err)
 		}
 	}
+
+	return nil
+}
+
+// Start starts consuming messages from the subscribed queue.
+func (c *Consumer) Start() error {
+	const errMessage = "failed to start consuming: %w"
+
+	if c.isConsuming {
+		return fmt.Errorf(errMessage, ErrConsumerAlreadyRunning)
+	}
+
+	return c.startConsuming()
+}
+
+func (c *Consumer) startConsuming() error {
+	const errMessage = "failed to start consuming: %w"
 
 	deliveries, err := c.conn.amqpChannel.Consume(
 		c.options.QueueOptions.name,
@@ -118,6 +142,10 @@ func (c *Consumer) startConsuming() error {
 	for i := 0; i < c.options.HandlerQuantity; i++ {
 		go c.handlerRoutine(deliveries)
 	}
+
+	c.watchRecoveryChan()
+
+	c.isConsuming = true
 
 	c.conn.logger.logDebug(context.Background(), fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
 
@@ -196,7 +224,12 @@ func (c *Consumer) handleMessage(delivery *Delivery) Action {
 
 func (c *Consumer) watchRecoveryChan() {
 	go func() {
-		for range c.recoveryChan {
+		for {
+			_, ok := <-c.recoveryChan
+			if !ok {
+				return
+			}
+
 			c.recoveryChan <- c.startConsuming()
 		}
 	}()

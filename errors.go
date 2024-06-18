@@ -25,6 +25,9 @@ var ErrHealthyConnection = errors.New("connection is healthy, no need to recover
 // ErrInvalidConnection occurs when an invalid connection is passed to a publisher or a consumer.
 var ErrInvalidConnection = errors.New("invalid connection")
 
+// ErrConsumerAlreadyRunning occurs when the consumer is attempted to be started but already running.
+var ErrConsumerAlreadyRunning = errors.New("consumer is running")
+
 // AMQPError is a custom error type that wraps amqp errors.
 type AMQPError amqp.Error
 
