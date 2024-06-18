@@ -173,8 +173,6 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -392,8 +390,6 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -664,8 +660,6 @@ func Test_Integration_Consume(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -843,8 +837,6 @@ func Test_Integration_CustomOptions(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1005,8 +997,6 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1152,8 +1142,6 @@ func Test_Integration_DecodeDeliveryBody(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1187,8 +1175,6 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -2036,7 +2022,7 @@ func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // inte
 	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
 	requireNoError(t, err)
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		// publish messages to the queue with while not connected.
 		if err := publisher.Publish(context.Background(), queueName, message); !errors.Is(err, clarimq.ErrPublishFailedChannelClosedCached) {
 			t.Fatal()

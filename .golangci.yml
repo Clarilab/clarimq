@@ -2,28 +2,18 @@ linters:
   enable-all: true
   disable:
     - contextcheck # Check whether the function uses a non-inherited context aka context.Background()
-    - deadcode # deprecated, replaced by unused
     - depguard # not needed, does the same as gomodguard
     - execinquery # sql linter, no need
     - exhaustruct # very annoying, checks if all struct fields are filled
-    - exhaustivestruct # deprecated, same as exhaustruct
     - ginkgolinter # not used libs
     - godot # nervig für quasi keinen impact
     - gofumpt # we don't use gofumpt
     - goheader # unused
-    - golint # deprecated, replaced by revive
-    - ifshort # deprecated
-    - interfacer # deprecated
     - lll # should be disabled in CI, as this is cosmetic only
-    - maligned # deprecated
     - nakedret # no need
-    - nosnakecase # deprecated
     - rowserrcheck # disabled because sql
-    - scopelint # deprecated
-    - structcheck # deprecated & disabled because of generics
     - sqlclosecheck # disabled because of generics
     - tagliatelle # requires ID instead of Id in jsonTags, which is annoying for our old structs
-    - varcheck  # deprecated
 linters-settings:
   cyclop:
     max-complexity: 20
@@ -69,7 +59,7 @@ linters-settings:
         replacement: 'a[b:]'
       - pattern: 'a[0:b]'
         replacement: 'a[:b]'
-  gomnd:
+  mnd:
     # List of function patterns to exclude from analysis.
     # Values always ignored: `time.Date`,
     # `strconv.FormatInt`, `strconv.FormatUint`, `strconv.FormatFloat`,
@@ -134,7 +124,7 @@ linters-settings:
   revive:
     enable-all-rules: true
     rules:
-      # Provided by gomnd linter
+      # Provided by mnd linter
       - name: add-constant
         disabled: true
       - name: argument-limit
@@ -231,14 +221,14 @@ issues:
         - funlen
         - goconst
         - gocyclo
-        - gomnd
+        - mnd
         - gosec
         - noctx
         - wrapcheck
 output:
   sort-results: true
 run:
-  skip-dirs:
+  exclude-dirs:
     - cmd
     - config
   # tests: false

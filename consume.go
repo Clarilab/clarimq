@@ -139,7 +139,7 @@ func (c *Consumer) startConsuming() error {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	for i := 0; i < c.options.HandlerQuantity; i++ {
+	for range c.options.HandlerQuantity {
 		go c.handlerRoutine(deliveries)
 	}
 
