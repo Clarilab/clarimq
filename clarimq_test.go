@@ -1302,6 +1302,338 @@ func Test_Integration_ConnectionName(t *testing.T) {
 	})
 }
 
+func Test_Integration_MaxRetriesExceededHandler(t *testing.T) {
+	t.Parallel()
+
+	message := "test-message"
+
+	publishConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	// declaring a mutex protected consumeConnLogBuffer.
+	consumeConnLogBuffer := &testBuffer{
+		mtx:  new(sync.Mutex),
+		buff: new(bytes.Buffer),
+	}
+
+	consumeConn := getConnection(t,
+		clarimq.WithConnectionOptionLoggers(newTestLogger(consumeConnLogBuffer)),
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	t.Cleanup(func() {
+		err := publishConn.Close()
+		requireNoError(t, err)
+
+		err = consumeConn.Close()
+		requireNoError(t, err)
+	})
+
+	t.Run("no error", func(t *testing.T) {
+		t.Parallel()
+
+		wg := new(sync.WaitGroup)
+
+		wg.Add(1)
+
+		handler := func(msg *clarimq.Delivery) clarimq.Action {
+			requireEqual(t, message, string(msg.Body))
+
+			// always discard the message to requeue via dlx-exchange.
+			return clarimq.NackDiscard
+		}
+
+		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
+			requireEqual(t, message, string(delivery.Body))
+
+			wg.Done()
+
+			return nil
+		}
+
+		queueName := stringGen()
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+			clarimq.WithConsumerOptionDeadLetterRetry(&clarimq.RetryOptions{
+				RetryConn:                 publishConn,
+				MaxRetries:                2,
+				Delays:                    []time.Duration{time.Second},
+				MaxRetriesExceededHandler: maxRetriesExceededHandler,
+			}),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		// creating a publisher.
+		publisher, err := clarimq.NewPublisher(publishConn)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := publisher.Close()
+			requireNoError(t, err)
+		})
+
+		err = consumer.Start()
+		requireNoError(t, err)
+
+		// publish the message.
+		err = publisher.Publish(context.Background(), queueName, message)
+		requireNoError(t, err)
+
+		// waiting for the maxRetriesExceededHandler to handle the max retries exceed "case".
+		wg.Wait()
+	})
+
+	t.Run("with error", func(t *testing.T) {
+		t.Parallel()
+
+		wg := new(sync.WaitGroup)
+
+		wg.Add(1)
+
+		handler := func(msg *clarimq.Delivery) clarimq.Action {
+			requireEqual(t, message, string(msg.Body))
+
+			// always discard the message to requeue via dlx-exchange.
+			return clarimq.NackDiscard
+		}
+
+		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
+			requireEqual(t, message, string(delivery.Body))
+
+			return errors.New("error-from-max-retries-exceeded-handler") //nolint:goerr113 // test code
+		}
+
+		queueName := stringGen()
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+			clarimq.WithConsumerOptionDeadLetterRetry(&clarimq.RetryOptions{
+				RetryConn:                 publishConn,
+				MaxRetries:                2,
+				Delays:                    []time.Duration{time.Second}, // 1 second to keep testing short
+				MaxRetriesExceededHandler: maxRetriesExceededHandler,
+			}),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		// creating a publisher.
+		publisher, err := clarimq.NewPublisher(publishConn,
+			clarimq.WithPublishOptionMandatory(true),
+			clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := publisher.Close()
+			requireNoError(t, err)
+		})
+
+		err = consumer.Start()
+		requireNoError(t, err)
+
+		// publish the message.
+		err = publisher.Publish(context.Background(), queueName, message)
+		requireNoError(t, err)
+
+		// read the log buffer and check if the error from the maxRetriesExceededHandler was logged.
+		func(buffer *testBuffer) {
+			defer wg.Done()
+
+			for {
+				line, err := buffer.ReadBytes('\n')
+				if errors.Is(err, io.EOF) {
+					continue
+				}
+
+				var logEntry logEntry
+
+				_ = json.Unmarshal(line, &logEntry)
+
+				if buffer.Len() == 0 {
+					buffer.Reset()
+				}
+
+				if strings.Contains(logEntry.Msg, "error-from-max-retries-exceeded-handler") {
+					return
+				}
+			}
+		}(consumeConnLogBuffer)
+
+		// waiting for the maxRetriesExceededHandler error to be logged.
+		wg.Wait()
+	})
+}
+
+func Test_Integration_ConsumeAfterCreation(t *testing.T) {
+	t.Parallel()
+
+	message := "test-message"
+
+	publishConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	consumeConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	t.Run("start consumer separately", func(t *testing.T) {
+		t.Parallel()
+
+		wg := new(sync.WaitGroup)
+
+		wg.Add(1)
+
+		handler := func(msg *clarimq.Delivery) clarimq.Action {
+			defer wg.Done()
+
+			requireEqual(t, message, string(msg.Body))
+
+			return clarimq.Ack
+		}
+
+		queueName := stringGen()
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		// creating a publisher.
+		publisher, err := clarimq.NewPublisher(publishConn)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := publisher.Close()
+			requireNoError(t, err)
+		})
+
+		// starting the consumer.
+		err = consumer.Start()
+		requireNoError(t, err)
+
+		// publish the message.
+		err = publisher.Publish(context.Background(), queueName, message)
+		requireNoError(t, err)
+
+		// waiting for the publishing to be consumed and successfully handled.
+		wg.Wait()
+	})
+
+	t.Run("consumer with consume after creation option", func(t *testing.T) {
+		t.Parallel()
+
+		wg := new(sync.WaitGroup)
+
+		wg.Add(1)
+
+		handler := func(msg *clarimq.Delivery) clarimq.Action {
+			defer wg.Done()
+
+			requireEqual(t, message, string(msg.Body))
+
+			return clarimq.Ack
+		}
+
+		queueName := stringGen()
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+			clarimq.WithConsumerOptionConsumeAfterCreation(true),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		// creating a publisher.
+		publisher, err := clarimq.NewPublisher(publishConn)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := publisher.Close()
+			requireNoError(t, err)
+		})
+
+		// publish the message.
+		err = publisher.Publish(context.Background(), queueName, message)
+		requireNoError(t, err)
+
+		// waiting for the publishing to be consumed and successfully handled.
+		wg.Wait()
+	})
+
+	t.Run("starting an already running consumer", func(t *testing.T) {
+		t.Parallel()
+
+		handler := func(_ *clarimq.Delivery) clarimq.Action { return clarimq.Ack }
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, "some-queue", handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+			clarimq.WithConsumerOptionConsumeAfterCreation(true),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		err = consumer.Start()
+		if !errors.Is(err, clarimq.ErrConsumerAlreadyRunning) {
+			t.Errorf("expected %v, got %v", clarimq.ErrConsumerAlreadyRunning, err)
+		}
+	})
+}
+
 // testBuffer is used as buffer for the logging io.Writer
 // with mutex protection for concurrent access.
 type testBuffer struct {
@@ -1722,195 +2054,6 @@ func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // inte
 
 	_, err = consumeConn.RemoveQueue(queueName, false, false, false)
 	requireNoError(t, err)
-}
-
-func Test_Integration_MaxRetriesExceededHandler(t *testing.T) {
-	t.Parallel()
-
-	message := "test-message"
-
-	publishConn := getConnection(t,
-		clarimq.WithConnectionOptionBackOffFactor(1),
-		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
-	)
-
-	// declaring a mutex protected consumeConnLogBuffer.
-	consumeConnLogBuffer := &testBuffer{
-		mtx:  new(sync.Mutex),
-		buff: new(bytes.Buffer),
-	}
-
-	consumeConn := getConnection(t,
-		clarimq.WithConnectionOptionLoggers(newTestLogger(consumeConnLogBuffer)),
-		clarimq.WithConnectionOptionBackOffFactor(1),
-		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
-	)
-
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumeConn.Close()
-		requireNoError(t, err)
-	})
-
-	t.Run("no error", func(t *testing.T) {
-		t.Parallel()
-
-		wg := new(sync.WaitGroup)
-
-		wg.Add(1)
-
-		handler := func(msg *clarimq.Delivery) clarimq.Action {
-			requireEqual(t, message, string(msg.Body))
-
-			// always discard the message to requeue via dlx-exchange.
-			return clarimq.NackDiscard
-		}
-
-		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
-			requireEqual(t, message, string(delivery.Body))
-
-			wg.Done()
-
-			return nil
-		}
-
-		queueName := stringGen()
-
-		// creating a consumer.
-		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
-			clarimq.WithQueueOptionDurable(true),
-			clarimq.WithExchangeOptionDeclare(true),
-			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
-			clarimq.WithExchangeOptionName("text-exchange"),
-			clarimq.WithQueueOptionDeclare(true),
-			clarimq.WithConsumerOptionDeadLetterRetry(&clarimq.RetryOptions{
-				RetryConn:                 publishConn,
-				MaxRetries:                2,
-				Delays:                    []time.Duration{time.Second},
-				MaxRetriesExceededHandler: maxRetriesExceededHandler,
-			}),
-		)
-		requireNoError(t, err)
-
-		t.Cleanup(func() {
-			err := consumer.Close()
-			requireNoError(t, err)
-		})
-
-		// creating a publisher.
-		publisher, err := clarimq.NewPublisher(publishConn,
-			clarimq.WithPublishOptionMandatory(true),
-			clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
-		)
-		requireNoError(t, err)
-
-		t.Cleanup(func() {
-			err := publisher.Close()
-			requireNoError(t, err)
-		})
-
-		err = consumer.Start()
-		requireNoError(t, err)
-
-		// publish the message.
-		err = publisher.Publish(context.Background(), queueName, message)
-		requireNoError(t, err)
-
-		// waiting for the maxRetriesExceededHandler to handle the max retries exceed "case".
-		wg.Wait()
-	})
-
-	t.Run("with error", func(t *testing.T) {
-		t.Parallel()
-
-		wg := new(sync.WaitGroup)
-
-		wg.Add(1)
-
-		handler := func(msg *clarimq.Delivery) clarimq.Action {
-			requireEqual(t, message, string(msg.Body))
-
-			// always discard the message to requeue via dlx-exchange.
-			return clarimq.NackDiscard
-		}
-
-		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
-			requireEqual(t, message, string(delivery.Body))
-
-			return errors.New("error-from-max-retries-exceeded-handler") //nolint:goerr113 // test code
-		}
-
-		queueName := stringGen()
-
-		// creating a consumer.
-		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
-			clarimq.WithQueueOptionDurable(true),
-			clarimq.WithExchangeOptionDeclare(true),
-			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
-			clarimq.WithExchangeOptionName("text-exchange"),
-			clarimq.WithQueueOptionDeclare(true),
-			clarimq.WithConsumerOptionDeadLetterRetry(&clarimq.RetryOptions{
-				RetryConn:                 publishConn,
-				MaxRetries:                2,
-				Delays:                    []time.Duration{time.Second}, // 1 second to keep testing short
-				MaxRetriesExceededHandler: maxRetriesExceededHandler,
-			}),
-		)
-		requireNoError(t, err)
-
-		t.Cleanup(func() {
-			err := consumer.Close()
-			requireNoError(t, err)
-		})
-
-		// creating a publisher.
-		publisher, err := clarimq.NewPublisher(publishConn,
-			clarimq.WithPublishOptionMandatory(true),
-			clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
-		)
-		requireNoError(t, err)
-
-		t.Cleanup(func() {
-			err := publisher.Close()
-			requireNoError(t, err)
-		})
-
-		err = consumer.Start()
-		requireNoError(t, err)
-
-		// publish the message.
-		err = publisher.Publish(context.Background(), queueName, message)
-		requireNoError(t, err)
-
-		// read the log buffer and check if the error from the maxRetriesExceededHandler was logged.
-		func(buffer *testBuffer) {
-			defer wg.Done()
-
-			for {
-				line, err := buffer.ReadBytes('\n')
-				if errors.Is(err, io.EOF) {
-					continue
-				}
-
-				var logEntry logEntry
-
-				_ = json.Unmarshal(line, &logEntry)
-
-				if buffer.Len() == 0 {
-					buffer.Reset()
-				}
-
-				if strings.Contains(logEntry.Msg, "error-from-max-retries-exceeded-handler") {
-					return
-				}
-			}
-		}(consumeConnLogBuffer)
-
-		// waiting for the maxRetriesExceededHandler error to be logged.
-		wg.Wait()
-	})
 }
 
 // ##### helper functions: ##########################
