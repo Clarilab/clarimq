@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Clarilab/clarimq"
-	"github.com/Clarilab/clarimq/cache"
+	"github.com/Clarilab/clarimq/v2"
+	"github.com/Clarilab/clarimq/v2/cache"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

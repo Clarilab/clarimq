@@ -3,7 +3,7 @@ package cache
 import (
 	"sync"
 
-	"github.com/Clarilab/clarimq"
+	"github.com/Clarilab/clarimq/v2"
 )
 
 // BasicInMemoryCache is a basic in-memory cache implementation of the clarimq.PublishingCache interface.
