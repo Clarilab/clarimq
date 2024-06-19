@@ -179,14 +179,6 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 			publishConn := getConnection(t)
 			consumerConn := getConnection(t)
 
-			t.Cleanup(func() {
-				err := publishConn.Close()
-				requireNoError(t, err)
-
-				err = consumerConn.Close()
-				requireNoError(t, err)
-			})
-
 			doneChan := make(chan struct{})
 
 			testParams := &testParams{
@@ -395,14 +387,6 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 
 			publishConn := getConnection(t)
 			consumeConn := getConnection(t)
-
-			t.Cleanup(func() {
-				err := publishConn.Close()
-				requireNoError(t, err)
-
-				err = consumeConn.Close()
-				requireNoError(t, err)
-			})
 
 			doneChan := make(chan struct{})
 			queueName := stringGen()
@@ -666,14 +650,6 @@ func Test_Integration_Consume(t *testing.T) {
 			publishConn := getConnection(t)
 			consumeConn := getConnection(t)
 
-			t.Cleanup(func() {
-				err := publishConn.Close()
-				requireNoError(t, err)
-
-				err = consumeConn.Close()
-				requireNoError(t, err)
-			})
-
 			doneChan := make(chan struct{})
 
 			testParams := &testParams{
@@ -844,14 +820,6 @@ func Test_Integration_CustomOptions(t *testing.T) {
 
 			consumeConn := getConnection(t)
 
-			t.Cleanup(func() {
-				err := test.publishConn.Close()
-				requireNoError(t, err)
-
-				err = consumeConn.Close()
-				requireNoError(t, err)
-			})
-
 			wg := &sync.WaitGroup{}
 
 			// adding 2 to wait for both consumers to handle their deliveries.
@@ -1008,11 +976,6 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 
 			conn := getConnection(t)
 
-			t.Cleanup(func() {
-				err := conn.Close()
-				requireNoError(t, err)
-			})
-
 			consumer, err := test.getConsumer(conn, testParams)
 			requireNoError(t, err)
 
@@ -1049,14 +1012,6 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	)
 
 	consumerConn := getConnection(t)
-
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumerConn.Close()
-		requireNoError(t, err)
-	})
 
 	exchangeName := stringGen()
 	queueName := stringGen()
@@ -1145,11 +1100,6 @@ func Test_Integration_DecodeDeliveryBody(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			t.Cleanup(func() {
-				err := test.conn.Close()
-				requireNoError(t, err)
-			})
-
 			var result testData
 
 			err := test.conn.DecodeDeliveryBody(delivery, &result)
@@ -1185,14 +1135,6 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 
 			publishConn := getConnection(t)
 			consumeConn := getConnection(t)
-
-			t.Cleanup(func() {
-				err := publishConn.Close()
-				requireNoError(t, err)
-
-				err = consumeConn.Close()
-				requireNoError(t, err)
-			})
 
 			publisher, err := clarimq.NewPublisher(publishConn,
 				clarimq.WithPublishOptionExchange(exchangeName),
@@ -1261,11 +1203,6 @@ func Test_Integration_ConnectionName(t *testing.T) {
 		t.Parallel()
 
 		conn := getConnection(t, clarimq.WithConnectionOptionConnectionName("connection-name"))
-		t.Cleanup(func() {
-			if err := conn.Close(); err != nil {
-				t.Error(err)
-			}
-		})
 
 		if conn.Name() != "connection-name" {
 			t.Errorf("expected connection name to be 'connection-name', got: '%s'", conn.Name())
@@ -1276,11 +1213,6 @@ func Test_Integration_ConnectionName(t *testing.T) {
 		t.Parallel()
 
 		conn := getConnection(t)
-		t.Cleanup(func() {
-			if err := conn.Close(); err != nil {
-				t.Error(err)
-			}
-		})
 
 		if !strings.Contains(conn.Name(), "connection_") {
 			t.Errorf("expected connection name to contain 'connection_', got: '%s'", conn.Name())
@@ -1309,14 +1241,6 @@ func Test_Integration_MaxRetriesExceededHandler(t *testing.T) {
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
-
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumeConn.Close()
-		requireNoError(t, err)
-	})
 
 	t.Run("no error", func(t *testing.T) {
 		t.Parallel()
@@ -1699,14 +1623,6 @@ func Test_Recovery_AutomaticRecovery(t *testing.T) { //nolint:paralleltest // in
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumeConn.Close()
-		requireNoError(t, err)
-	})
-
 	// msgCounter is used to count the number of deliveries, to compare it afterwords.
 	var msgCounter int
 
@@ -1835,14 +1751,6 @@ func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) { //no
 		clarimq.WithConnectionOptionBackOffFactor(1),
 	)
 
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumeConn.Close()
-		requireNoError(t, err)
-	})
-
 	// msgCounter is used to count the number of deliveries, to compare it afterwords.
 	var msgCounter int
 
@@ -1965,14 +1873,6 @@ func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // inte
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumeConn.Close()
-		requireNoError(t, err)
-	})
-
 	wg := &sync.WaitGroup{}
 
 	wg.Add(1)
@@ -2058,6 +1958,11 @@ func getConnection(t *testing.T, options ...clarimq.ConnectionOption) *clarimq.C
 	)
 
 	requireNoError(t, err)
+
+	t.Cleanup(func() {
+		err := conn.Close()
+		requireNoError(t, err)
+	})
 
 	return conn
 }

@@ -79,12 +79,11 @@ func (c *Consumer) Close() error {
 		}
 	}
 
-	if err := c.conn.amqpChannel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
+	if err := c.conn.cancelConsumer(c.options.ConsumerOptions.Name); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
 	close(c.recoveryChan)
-	c.conn.removeConsumerRecoveryChan(c.options.ConsumerOptions.Name)
 
 	c.isConsuming = false
 
@@ -114,7 +113,7 @@ func (c *Consumer) setupConsumer() error {
 
 // Start starts consuming messages from the subscribed queue.
 func (c *Consumer) Start() error {
-	const errMessage = "failed to start consuming: %w"
+	const errMessage = "failed to start: %w"
 
 	if c.isConsuming {
 		return fmt.Errorf(errMessage, ErrConsumerAlreadyRunning)
@@ -225,12 +224,14 @@ func (c *Consumer) handleMessage(delivery *Delivery) Action {
 func (c *Consumer) watchRecoveryChan() {
 	go func() {
 		for {
-			_, ok := <-c.recoveryChan
-			if !ok {
-				return
-			}
+			select {
+			case _, ok := <-c.recoveryChan:
+				if !ok {
+					return
+				}
 
-			c.recoveryChan <- c.startConsuming()
+				c.recoveryChan <- c.startConsuming()
+			}
 		}
 	}()
 }

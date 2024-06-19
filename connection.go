@@ -330,8 +330,16 @@ func (c *Connection) watchConnectionNotifications() {
 	go func() {
 		for {
 			select {
-			case err := <-closeChan:
-				c.handleClosedConnection(err)
+			case _, ok := <-closeChan:
+				if !ok {
+					c.logger.logDebug(context.Background(), "connection gracefully closed")
+
+					c.connectionCloseWG.Done()
+
+					return
+				}
+
+				c.handleClosedConnection()
 
 				return
 
@@ -347,16 +355,30 @@ func (c *Connection) watchChannelNotifications() {
 	cancelChan := c.amqpChannel.NotifyCancel(make(chan string))
 	returnChan := c.amqpChannel.NotifyReturn(make(chan amqp.Return))
 
+	logCtx := context.Background()
+
 	go func() {
 		for {
 			select {
-			case err := <-closeChan:
+			case err, ok := <-closeChan:
+				if !ok {
+					c.logger.logDebug(logCtx, "channel gracefully closed")
+
+					c.connectionCloseWG.Done()
+
+					return
+				}
+
 				c.handleClosedChannel(err)
 
 				return
 
-			case tag := <-cancelChan:
-				c.logger.logWarn(context.Background(), "cancel exception", "cause", tag)
+			case tag, ok := <-cancelChan:
+				if !ok {
+					continue
+				}
+
+				c.logger.logWarn(logCtx, "cancel exception", "cause", tag)
 
 			case rtn := <-returnChan:
 				if c.returnHandler != nil {
@@ -366,7 +388,7 @@ func (c *Connection) watchChannelNotifications() {
 				}
 
 				c.logger.logWarn(
-					context.Background(),
+					logCtx,
 					"message could not be published",
 					"replyCode", rtn.ReplyCode,
 					"replyText", rtn.ReplyText,
@@ -380,15 +402,7 @@ func (c *Connection) watchChannelNotifications() {
 	}()
 }
 
-func (c *Connection) handleClosedConnection(err *amqp.Error) {
-	if err == nil {
-		c.logger.logDebug(context.Background(), "connection gracefully closed")
-
-		c.connectionCloseWG.Done()
-
-		return
-	}
-
+func (c *Connection) handleClosedConnection() {
 	if err := c.recoverConnection(); err != nil {
 		c.errChanMU.Lock()
 		c.errChan <- &RecoveryFailedError{err, c.Name()}
@@ -397,17 +411,7 @@ func (c *Connection) handleClosedConnection(err *amqp.Error) {
 }
 
 func (c *Connection) handleClosedChannel(err *amqp.Error) {
-	logCtx := context.Background()
-
-	if err == nil {
-		c.logger.logDebug(logCtx, "channel gracefully closed")
-
-		c.connectionCloseWG.Done()
-
-		return
-	}
-
-	c.logger.logDebug(logCtx, "channel unexpectedly closed", "cause", err)
+	c.logger.logDebug(context.Background(), "channel unexpectedly closed", "cause", err)
 
 	amqpErr := AMQPError(*err)
 
@@ -500,6 +504,25 @@ func (c *Connection) removeConsumerRecoveryChan(consumerTag string) {
 	defer c.consumerRecoveryChansMU.Unlock()
 
 	delete(c.consumerRecoveryChans, consumerTag)
+}
+
+func (c *Connection) cancelConsumer(consumerTag string) error {
+	const errMessage = "failed to cancel consumer: %w"
+
+	c.amqpChanMU.Lock()
+	defer c.amqpChanMU.Unlock()
+
+	if c.amqpChannel == nil || c.amqpChannel.IsClosed() {
+		return fmt.Errorf(errMessage, amqp.ErrClosed)
+	}
+
+	if err := c.amqpChannel.Cancel(consumerTag, false); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	c.removeConsumerRecoveryChan(consumerTag)
+
+	return nil
 }
 
 func (c *Connection) backOff(action func() error) error {
