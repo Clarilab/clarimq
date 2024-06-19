@@ -1,7 +1,12 @@
 package clarimq
 
 import (
+	"fmt"
 	"time"
+)
+
+const (
+	undefinedPublisher string = "undefined_publisher"
 )
 
 type (
@@ -20,6 +25,8 @@ type (
 
 	// PublisherOptions are the options for a publisher.
 	PublisherOptions struct {
+		// PublisherName is the name of the publisher.
+		PublisherName string
 		// PublishingCache is the publishing cache.
 		PublishingCache PublishingCache
 		// PublishingOptions are the options for publishing messages.
@@ -69,9 +76,14 @@ type (
 
 func defaultPublisherOptions() *PublisherOptions {
 	return &PublisherOptions{
+		PublisherName:     newDefaultPublisherName(),
 		PublishingCache:   nil,
 		PublishingOptions: defaultPublishOptions(),
 	}
+}
+
+func newDefaultPublisherName() string {
+	return fmt.Sprintf("%s_%s", undefinedPublisher, newRandomString())
 }
 
 func defaultPublishOptions() *PublishOptions {
@@ -214,4 +226,13 @@ func WithPublishOptionAppID(appID string) PublisherOption {
 // An implementation of the PublishingCache interface must be provided.
 func WithPublisherOptionPublishingCache(cache PublishingCache) PublisherOption {
 	return func(options *PublisherOptions) { options.PublishingCache = cache }
+}
+
+// WithPublisherOptionPublisherName sets the name of the publisher.
+//
+// If unset a random name will be given.
+func WithPublisherOptionPublisherName(publisherName string) PublisherOption {
+	return func(options *PublisherOptions) {
+		options.PublisherName = publisherName
+	}
 }

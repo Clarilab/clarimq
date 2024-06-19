@@ -10,10 +10,11 @@ import (
 type (
 	// Consumer is a consumer for AMQP messages.
 	Consumer struct {
-		conn         *Connection
-		options      *ConsumeOptions
-		handler      HandlerFunc
-		recoveryChan chan error
+		conn        *Connection
+		channelExec channelExec
+		options     *ConsumeOptions
+		handler     HandlerFunc
+		isConsuming bool
 	}
 
 	// Delivery captures the fields for a previously delivered message resident in
@@ -44,19 +45,23 @@ func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, option
 	opt.QueueOptions.name = queueName
 
 	consumer := &Consumer{
-		conn:         conn,
-		options:      opt,
-		handler:      handler,
-		recoveryChan: make(chan error),
+		conn:        conn,
+		channelExec: conn.channelExec,
+		options:     opt,
+		handler:     handler,
 	}
 
-	conn.addConsumerRecoveryChan(consumer.options.ConsumerOptions.Name, consumer.recoveryChan)
+	conn.addConsumerRecoveryFN(consumer.options.ConsumerOptions.Name, consumer.recoverConsumer)
 
-	if err := consumer.startConsuming(); err != nil {
+	if err := consumer.setupConsumer(); err != nil {
 		return nil, fmt.Errorf(errMessage, err)
 	}
 
-	consumer.watchRecoveryChan()
+	if consumer.options.ConsumeAfterCreation {
+		if err := consumer.Start(); err != nil {
+			return nil, fmt.Errorf(errMessage, err)
+		}
+	}
 
 	return consumer, nil
 }
@@ -74,21 +79,19 @@ func (c *Consumer) Close() error {
 		}
 	}
 
-	if err := c.conn.amqpChannel.Cancel(c.options.ConsumerOptions.Name, false); err != nil {
+	if err := c.conn.cancelConsumer(c.options.ConsumerOptions.Name); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	close(c.recoveryChan)
-	c.conn.removeConsumerRecoveryChan(c.options.ConsumerOptions.Name)
+	c.isConsuming = false
 
 	return nil
 }
 
-func (c *Consumer) startConsuming() error {
-	const errMessage = "failed to start consuming: %w"
+func (c *Consumer) setupConsumer() error {
+	const errMessage = "failed to setup consumer: %w"
 
-	if err := handleDeclarations(
-		c.conn.amqpChannel,
+	if err := c.handleDeclarations(
 		c.options.ExchangeOptions,
 		c.options.QueueOptions,
 		c.options.Bindings,
@@ -102,40 +105,69 @@ func (c *Consumer) startConsuming() error {
 		}
 	}
 
-	deliveries, err := c.conn.amqpChannel.Consume(
-		c.options.QueueOptions.name,
-		c.options.ConsumerOptions.Name,
-		c.options.ConsumerOptions.AutoAck,
-		c.options.ConsumerOptions.Exclusive,
-		false, // always set to false since RabbitMQ does not support immediate publishing
-		c.options.ConsumerOptions.NoWait,
-		amqp.Table(c.options.ConsumerOptions.Args),
-	)
-	if err != nil {
+	return nil
+}
+
+// Start starts consuming messages from the subscribed queue.
+func (c *Consumer) Start() error {
+	const errMessage = "failed to start: %w"
+
+	if c.isConsuming {
+		return fmt.Errorf(errMessage, ErrConsumerAlreadyRunning)
+	}
+
+	return c.startConsuming()
+}
+
+func (c *Consumer) startConsuming() error {
+	const errMessage = "failed to start consuming: %w"
+
+	var deliveries <-chan amqp.Delivery
+
+	if err := c.channelExec(func(channel *amqp.Channel) error {
+		var err error
+
+		deliveries, err = channel.Consume(
+			c.options.QueueOptions.name,
+			c.options.ConsumerOptions.Name,
+			c.options.ConsumerOptions.AutoAck,
+			c.options.ConsumerOptions.Exclusive,
+			false, // always set to false since RabbitMQ does not support immediate publishing
+			c.options.ConsumerOptions.NoWait,
+			amqp.Table(c.options.ConsumerOptions.Args),
+		)
+		if err != nil {
+			return fmt.Errorf(errMessage, err)
+		}
+
+		return nil
+	}); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	for i := 0; i < c.options.HandlerQuantity; i++ {
+	for range c.options.HandlerQuantity {
 		go c.handlerRoutine(deliveries)
 	}
+
+	c.isConsuming = true
 
 	c.conn.logger.logDebug(context.Background(), fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
 
 	return nil
 }
 
-func handleDeclarations(channel *amqp.Channel, exchangeOptions *ExchangeOptions, queueOptions *QueueOptions, bindings []Binding) error {
+func (c *Consumer) handleDeclarations(exchangeOptions *ExchangeOptions, queueOptions *QueueOptions, bindings []Binding) error {
 	const errMessage = "failed to handle declarations: %w"
 
-	if err := declareExchange(channel, exchangeOptions); err != nil {
+	if err := declareExchange(c.channelExec, exchangeOptions); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	if err := declareQueue(channel, queueOptions); err != nil {
+	if err := declareQueue(c.channelExec, queueOptions); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	if err := declareBindings(channel, queueOptions.name, exchangeOptions.Name, bindings); err != nil {
+	if err := declareBindings(c.channelExec, queueOptions.name, exchangeOptions.Name, bindings); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -146,7 +178,7 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery) {
 	for delivery := range deliveries {
 		delivery := &Delivery{delivery}
 
-		if c.conn.amqpChannel.IsClosed() {
+		if c.conn.isClosed() {
 			c.conn.logger.logDebug(context.Background(), "message handler stopped: channel is closed")
 
 			break
@@ -194,10 +226,16 @@ func (c *Consumer) handleMessage(delivery *Delivery) Action {
 	return action
 }
 
-func (c *Consumer) watchRecoveryChan() {
-	go func() {
-		for range c.recoveryChan {
-			c.recoveryChan <- c.startConsuming()
-		}
-	}()
+func (c *Consumer) recoverConsumer() error {
+	const errMessage = "failed to recover consumer: %w"
+
+	if err := c.setupConsumer(); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	if err := c.startConsuming(); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	return nil
 }

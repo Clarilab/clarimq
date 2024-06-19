@@ -10,12 +10,12 @@ This library includes support for:
 
 Supported Go Versions
 
-This library supports the most recent Go, currently 1.21.1
+This library supports the most recent Go, currently 1.22.4
 
 ## INSTALL
 
 ```bash
-go get github.com/Clarilab/clarimq
+go get github.com/Clarilab/clarimq/v2
 ```
 
 ## USAGE
@@ -174,7 +174,26 @@ consumer, err := clarimq.NewConsumer(conn, "my-queue", handler(),
 if err != nil {
 	// handle error
 }
+
+err := consumer.Start()
+if err != nil {
+	// handle error
+}
 ```
+
+The consumer can be set up to immediately start consuming messages from the broker by using the **WithConsumerOptionConsumeAfterCreation** option.
+The consumer then does not need to be started with the **Start** method. An error will be returned when trying to start an already started/running consumer.
+##### Example 
+```Go
+consumer, err := clarimq.NewConsumer(conn, "my-queue", handler(),
+		clarimq.WithConsumerOptionConsumeAfterCreation(true),
+	// more options can be passed
+)
+if err != nil {
+	// handle error
+}
+```
+
 
 The consumer can be used to declare exchanges, queues and queue-bindings:
 

@@ -58,7 +58,7 @@ func (c *Consumer) setupDeadLetterRetry() error {
 	c.options.RetryOptions.dlxName = dlxPrefix + c.options.ExchangeOptions.Name
 	c.options.RetryOptions.dlqNameBase = dlxPrefix + c.options.QueueOptions.name
 
-	if err := declareExchange(c.options.RetryOptions.RetryConn.amqpChannel,
+	if err := declareExchange(c.options.RetryOptions.RetryConn.channelExec,
 		defaultDLXOptions(c.options.RetryOptions.dlxName),
 	); err != nil {
 		return fmt.Errorf(errMessage, err)
@@ -112,7 +112,7 @@ func (c *Consumer) setupDeadLetterQueues() error {
 
 		queueName := fmt.Sprintf("%s_%s", c.options.RetryOptions.dlqNameBase, ttl.String())
 
-		if err := declareQueue(c.options.RetryOptions.RetryConn.amqpChannel,
+		if err := declareQueue(c.options.RetryOptions.RetryConn.channelExec,
 			defaultDLQOptions(
 				queueName,
 				c.options.ExchangeOptions.Name,
@@ -141,7 +141,7 @@ func (c *Consumer) setupDeadLetterQueues() error {
 		},
 	)
 
-	if err := declareBindings(c.options.RetryOptions.RetryConn.amqpChannel, "", "", bindings); err != nil {
+	if err := declareBindings(c.options.RetryOptions.RetryConn.channelExec, "", "", bindings); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 

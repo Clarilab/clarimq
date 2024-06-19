@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Clarilab/clarimq"
-	"github.com/Clarilab/clarimq/cache"
+	"github.com/Clarilab/clarimq/v2"
+	"github.com/Clarilab/clarimq/v2/cache"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -173,21 +173,11 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			publishConn := getConnection(t)
 			consumerConn := getConnection(t)
-
-			t.Cleanup(func() {
-				err := publishConn.Close()
-				requireNoError(t, err)
-
-				err = consumerConn.Close()
-				requireNoError(t, err)
-			})
 
 			doneChan := make(chan struct{})
 
@@ -218,13 +208,26 @@ func Test_Integration_PublishToExchange(t *testing.T) {
 				requireNoError(t, err)
 			}
 
-			_, err := test.getConsumer(consumerConn, test.deliveryHandler(test.message, doneChan), testParams)
+			consumer, err := test.getConsumer(consumerConn, test.deliveryHandler(test.message, doneChan), testParams)
 			requireNoError(t, err)
+
+			t.Cleanup(func() {
+				err := consumer.Close()
+				requireNoError(t, err)
+			})
 
 			publisher, err := clarimq.NewPublisher(
 				publishConn,
 				clarimq.WithPublishOptionExchange(testParams.exchangeName),
 			)
+			requireNoError(t, err)
+
+			t.Cleanup(func() {
+				err := publisher.Close()
+				requireNoError(t, err)
+			})
+
+			err = consumer.Start()
 			requireNoError(t, err)
 
 			err = publisher.Publish(context.Background(), testParams.routingKey, test.message)
@@ -379,21 +382,11 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			publishConn := getConnection(t)
 			consumeConn := getConnection(t)
-
-			t.Cleanup(func() {
-				err := publishConn.Close()
-				requireNoError(t, err)
-
-				err = consumeConn.Close()
-				requireNoError(t, err)
-			})
 
 			doneChan := make(chan struct{})
 			queueName := stringGen()
@@ -410,10 +403,23 @@ func Test_Integration_PublishToQueue(t *testing.T) {
 				requireNoError(t, err)
 			}
 
-			_, err := test.getConsumer(consumeConn, test.deliveryHandler(message, doneChan), queueName)
+			consumer, err := test.getConsumer(consumeConn, test.deliveryHandler(message, doneChan), queueName)
 			requireNoError(t, err)
 
+			t.Cleanup(func() {
+				err := consumer.Close()
+				requireNoError(t, err)
+			})
+
 			publisher, err := clarimq.NewPublisher(publishConn)
+			requireNoError(t, err)
+
+			t.Cleanup(func() {
+				err := publisher.Close()
+				requireNoError(t, err)
+			})
+
+			err = consumer.Start()
 			requireNoError(t, err)
 
 			err = test.publish(publisher, queueName)
@@ -638,21 +644,11 @@ func Test_Integration_Consume(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			publishConn := getConnection(t)
 			consumeConn := getConnection(t)
-
-			t.Cleanup(func() {
-				err := publishConn.Close()
-				requireNoError(t, err)
-
-				err = consumeConn.Close()
-				requireNoError(t, err)
-			})
 
 			doneChan := make(chan struct{})
 
@@ -664,13 +660,26 @@ func Test_Integration_Consume(t *testing.T) {
 
 			var counter int
 
-			_, err := test.getConsumer(consumeConn, test.deliveryHandler(message, counter, doneChan), testParams)
+			consumer, err := test.getConsumer(consumeConn, test.deliveryHandler(message, counter, doneChan), testParams)
 			requireNoError(t, err)
+
+			t.Cleanup(func() {
+				err := consumer.Close()
+				requireNoError(t, err)
+			})
 
 			publisher, err := clarimq.NewPublisher(
 				publishConn,
 				clarimq.WithPublishOptionExchange(testParams.exchangeName),
 			)
+			requireNoError(t, err)
+
+			t.Cleanup(func() {
+				err := publisher.Close()
+				requireNoError(t, err)
+			})
+
+			err = consumer.Start()
 			requireNoError(t, err)
 
 			err = publisher.Publish(context.Background(), testParams.routingKey, message)
@@ -804,8 +813,6 @@ func Test_Integration_CustomOptions(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -813,21 +820,13 @@ func Test_Integration_CustomOptions(t *testing.T) {
 
 			consumeConn := getConnection(t)
 
-			t.Cleanup(func() {
-				err := test.publishConn.Close()
-				requireNoError(t, err)
-
-				err = consumeConn.Close()
-				requireNoError(t, err)
-			})
-
 			wg := &sync.WaitGroup{}
 
 			// adding 2 to wait for both consumers to handle their deliveries.
 			wg.Add(2)
 
 			// registering first consumer.
-			_, err := clarimq.NewConsumer(
+			consumer1, err := clarimq.NewConsumer(
 				consumeConn,
 				targets[0],
 				test.deliveryHandler(message, wg),
@@ -837,7 +836,7 @@ func Test_Integration_CustomOptions(t *testing.T) {
 			requireNoError(t, err)
 
 			// registering second consumer with custom options.
-			_, err = clarimq.NewConsumer(
+			consumer2, err := clarimq.NewConsumer(
 				consumeConn,
 				targets[1],
 				test.deliveryHandler(message, wg),
@@ -864,7 +863,26 @@ func Test_Integration_CustomOptions(t *testing.T) {
 			)
 			requireNoError(t, err)
 
+			t.Cleanup(func() {
+				err := consumer1.Close()
+				requireNoError(t, err)
+
+				err = consumer2.Close()
+				requireNoError(t, err)
+			})
+
 			publisher, err := test.getPublisher(test.publishConn)
+			requireNoError(t, err)
+
+			t.Cleanup(func() {
+				err := publisher.Close()
+				requireNoError(t, err)
+			})
+
+			err = consumer1.Start()
+			requireNoError(t, err)
+
+			err = consumer2.Start()
 			requireNoError(t, err)
 
 			// publishing to multiple targets
@@ -947,8 +965,6 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -960,13 +976,13 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 
 			conn := getConnection(t)
 
+			consumer, err := test.getConsumer(conn, testParams)
+			requireNoError(t, err)
+
 			t.Cleanup(func() {
-				err := conn.Close()
+				err := consumer.Close()
 				requireNoError(t, err)
 			})
-
-			_, err := test.getConsumer(conn, testParams)
-			requireNoError(t, err)
 
 			err = test.action(conn, testParams)
 			requireNoError(t, err)
@@ -997,19 +1013,11 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 
 	consumerConn := getConnection(t)
 
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumerConn.Close()
-		requireNoError(t, err)
-	})
-
 	exchangeName := stringGen()
 	queueName := stringGen()
 	routingKey := stringGen()
 
-	_, err := clarimq.NewConsumer(
+	consumer, err := clarimq.NewConsumer(
 		consumerConn,
 		queueName,
 		nil,
@@ -1022,11 +1030,24 @@ func Test_Integration_ReturnHandler(t *testing.T) {
 	)
 	requireNoError(t, err)
 
+	t.Cleanup(func() {
+		err := consumer.Close()
+		requireNoError(t, err)
+	})
+
 	publisher, err := clarimq.NewPublisher(
 		publishConn,
 		clarimq.WithPublishOptionExchange(exchangeName),
 		clarimq.WithPublishOptionMandatory(true),
 	)
+	requireNoError(t, err)
+
+	t.Cleanup(func() {
+		err := publisher.Close()
+		requireNoError(t, err)
+	})
+
+	err = consumer.Start()
 	requireNoError(t, err)
 
 	// publishing a mandatory message with a routing key with out the existence of a binding.
@@ -1076,15 +1097,8 @@ func Test_Integration_DecodeDeliveryBody(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-
-			t.Cleanup(func() {
-				err := test.conn.Close()
-				requireNoError(t, err)
-			})
 
 			var result testData
 
@@ -1111,8 +1125,6 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		name, test := name, test
-
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1124,18 +1136,15 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 			publishConn := getConnection(t)
 			consumeConn := getConnection(t)
 
-			t.Cleanup(func() {
-				err := publishConn.Close()
-				requireNoError(t, err)
-
-				err = consumeConn.Close()
-				requireNoError(t, err)
-			})
-
 			publisher, err := clarimq.NewPublisher(publishConn,
 				clarimq.WithPublishOptionExchange(exchangeName),
 			)
 			requireNoError(t, err)
+
+			t.Cleanup(func() {
+				err := publisher.Close()
+				requireNoError(t, err)
+			})
 
 			doneChan := make(chan struct{})
 
@@ -1171,13 +1180,18 @@ func Test_Integration_DeadLetterRetry(t *testing.T) {
 			)
 			requireNoError(t, err)
 
+			t.Cleanup(func() {
+				err := consumer.Close()
+				requireNoError(t, err)
+			})
+
+			err = consumer.Start()
+			requireNoError(t, err)
+
 			err = publisher.Publish(context.Background(), routingKey, testMessage)
 			requireNoError(t, err)
 
 			<-doneChan
-
-			err = consumer.Close()
-			requireNoError(t, err)
 		})
 	}
 }
@@ -1189,11 +1203,6 @@ func Test_Integration_ConnectionName(t *testing.T) {
 		t.Parallel()
 
 		conn := getConnection(t, clarimq.WithConnectionOptionConnectionName("connection-name"))
-		t.Cleanup(func() {
-			if err := conn.Close(); err != nil {
-				t.Error(err)
-			}
-		})
 
 		if conn.Name() != "connection-name" {
 			t.Errorf("expected connection name to be 'connection-name', got: '%s'", conn.Name())
@@ -1204,14 +1213,333 @@ func Test_Integration_ConnectionName(t *testing.T) {
 		t.Parallel()
 
 		conn := getConnection(t)
-		t.Cleanup(func() {
-			if err := conn.Close(); err != nil {
-				t.Error(err)
-			}
-		})
 
 		if !strings.Contains(conn.Name(), "connection_") {
 			t.Errorf("expected connection name to contain 'connection_', got: '%s'", conn.Name())
+		}
+	})
+}
+
+func Test_Integration_MaxRetriesExceededHandler(t *testing.T) {
+	t.Parallel()
+
+	message := "test-message"
+
+	publishConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	// declaring a mutex protected consumeConnLogBuffer.
+	consumeConnLogBuffer := &testBuffer{
+		mtx:  new(sync.Mutex),
+		buff: new(bytes.Buffer),
+	}
+
+	consumeConn := getConnection(t,
+		clarimq.WithConnectionOptionLoggers(newTestLogger(consumeConnLogBuffer)),
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	t.Run("no error", func(t *testing.T) {
+		t.Parallel()
+
+		wg := new(sync.WaitGroup)
+
+		wg.Add(1)
+
+		handler := func(msg *clarimq.Delivery) clarimq.Action {
+			requireEqual(t, message, string(msg.Body))
+
+			// always discard the message to requeue via dlx-exchange.
+			return clarimq.NackDiscard
+		}
+
+		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
+			requireEqual(t, message, string(delivery.Body))
+
+			wg.Done()
+
+			return nil
+		}
+
+		queueName := stringGen()
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+			clarimq.WithConsumerOptionDeadLetterRetry(&clarimq.RetryOptions{
+				RetryConn:                 publishConn,
+				MaxRetries:                2,
+				Delays:                    []time.Duration{time.Second},
+				MaxRetriesExceededHandler: maxRetriesExceededHandler,
+			}),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		// creating a publisher.
+		publisher, err := clarimq.NewPublisher(publishConn)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := publisher.Close()
+			requireNoError(t, err)
+		})
+
+		err = consumer.Start()
+		requireNoError(t, err)
+
+		// publish the message.
+		err = publisher.Publish(context.Background(), queueName, message)
+		requireNoError(t, err)
+
+		// waiting for the maxRetriesExceededHandler to handle the max retries exceed "case".
+		wg.Wait()
+	})
+
+	t.Run("with error", func(t *testing.T) {
+		t.Parallel()
+
+		wg := new(sync.WaitGroup)
+
+		wg.Add(1)
+
+		handler := func(msg *clarimq.Delivery) clarimq.Action {
+			requireEqual(t, message, string(msg.Body))
+
+			// always discard the message to requeue via dlx-exchange.
+			return clarimq.NackDiscard
+		}
+
+		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
+			requireEqual(t, message, string(delivery.Body))
+
+			return errors.New("error-from-max-retries-exceeded-handler") //nolint:goerr113 // test code
+		}
+
+		queueName := stringGen()
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+			clarimq.WithConsumerOptionDeadLetterRetry(&clarimq.RetryOptions{
+				RetryConn:                 publishConn,
+				MaxRetries:                2,
+				Delays:                    []time.Duration{time.Second}, // 1 second to keep testing short
+				MaxRetriesExceededHandler: maxRetriesExceededHandler,
+			}),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		// creating a publisher.
+		publisher, err := clarimq.NewPublisher(publishConn,
+			clarimq.WithPublishOptionMandatory(true),
+			clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := publisher.Close()
+			requireNoError(t, err)
+		})
+
+		err = consumer.Start()
+		requireNoError(t, err)
+
+		// publish the message.
+		err = publisher.Publish(context.Background(), queueName, message)
+		requireNoError(t, err)
+
+		// read the log buffer and check if the error from the maxRetriesExceededHandler was logged.
+		func(buffer *testBuffer) {
+			defer wg.Done()
+
+			for {
+				line, err := buffer.ReadBytes('\n')
+				if errors.Is(err, io.EOF) {
+					continue
+				}
+
+				var logEntry logEntry
+
+				_ = json.Unmarshal(line, &logEntry)
+
+				if buffer.Len() == 0 {
+					buffer.Reset()
+				}
+
+				if strings.Contains(logEntry.Msg, "error-from-max-retries-exceeded-handler") {
+					return
+				}
+			}
+		}(consumeConnLogBuffer)
+
+		// waiting for the maxRetriesExceededHandler error to be logged.
+		wg.Wait()
+	})
+}
+
+func Test_Integration_ConsumeAfterCreation(t *testing.T) {
+	t.Parallel()
+
+	message := "test-message"
+
+	publishConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	consumeConn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+	)
+
+	t.Run("start consumer separately", func(t *testing.T) {
+		t.Parallel()
+
+		wg := new(sync.WaitGroup)
+
+		wg.Add(1)
+
+		handler := func(msg *clarimq.Delivery) clarimq.Action {
+			defer wg.Done()
+
+			requireEqual(t, message, string(msg.Body))
+
+			return clarimq.Ack
+		}
+
+		queueName := stringGen()
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		// creating a publisher.
+		publisher, err := clarimq.NewPublisher(publishConn)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := publisher.Close()
+			requireNoError(t, err)
+		})
+
+		// starting the consumer.
+		err = consumer.Start()
+		requireNoError(t, err)
+
+		// publish the message.
+		err = publisher.Publish(context.Background(), queueName, message)
+		requireNoError(t, err)
+
+		// waiting for the publishing to be consumed and successfully handled.
+		wg.Wait()
+	})
+
+	t.Run("consumer with consume after creation option", func(t *testing.T) {
+		t.Parallel()
+
+		wg := new(sync.WaitGroup)
+
+		wg.Add(1)
+
+		handler := func(msg *clarimq.Delivery) clarimq.Action {
+			defer wg.Done()
+
+			requireEqual(t, message, string(msg.Body))
+
+			return clarimq.Ack
+		}
+
+		queueName := stringGen()
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+			clarimq.WithConsumerOptionConsumeAfterCreation(true),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		// creating a publisher.
+		publisher, err := clarimq.NewPublisher(publishConn)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := publisher.Close()
+			requireNoError(t, err)
+		})
+
+		// publish the message.
+		err = publisher.Publish(context.Background(), queueName, message)
+		requireNoError(t, err)
+
+		// waiting for the publishing to be consumed and successfully handled.
+		wg.Wait()
+	})
+
+	t.Run("starting an already running consumer", func(t *testing.T) {
+		t.Parallel()
+
+		handler := func(_ *clarimq.Delivery) clarimq.Action { return clarimq.Ack }
+
+		// creating a consumer.
+		consumer, err := clarimq.NewConsumer(consumeConn, "some-queue", handler,
+			clarimq.WithQueueOptionDurable(true),
+			clarimq.WithExchangeOptionDeclare(true),
+			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
+			clarimq.WithExchangeOptionName("text-exchange"),
+			clarimq.WithQueueOptionDeclare(true),
+			clarimq.WithConsumerOptionConsumeAfterCreation(true),
+		)
+		requireNoError(t, err)
+
+		t.Cleanup(func() {
+			err := consumer.Close()
+			requireNoError(t, err)
+		})
+
+		err = consumer.Start()
+		if !errors.Is(err, clarimq.ErrConsumerAlreadyRunning) {
+			t.Errorf("expected %v, got %v", clarimq.ErrConsumerAlreadyRunning, err)
 		}
 	})
 }
@@ -1295,14 +1623,6 @@ func Test_Recovery_AutomaticRecovery(t *testing.T) { //nolint:paralleltest // in
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumeConn.Close()
-		requireNoError(t, err)
-	})
-
 	// msgCounter is used to count the number of deliveries, to compare it afterwords.
 	var msgCounter int
 
@@ -1319,14 +1639,27 @@ func Test_Recovery_AutomaticRecovery(t *testing.T) { //nolint:paralleltest // in
 	queueName := stringGen()
 
 	// creating a consumer.
-	_, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+	consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
 		clarimq.WithQueueOptionDurable(true),
 		clarimq.WithConsumerOptionConsumerName(stringGen()),
 	)
 	requireNoError(t, err)
 
+	t.Cleanup(func() {
+		err := consumer.Close()
+		requireNoError(t, err)
+	})
+
 	// creating a publisher.
 	publisher, err := clarimq.NewPublisher(publishConn)
+	requireNoError(t, err)
+
+	t.Cleanup(func() {
+		err := publisher.Close()
+		requireNoError(t, err)
+	})
+
+	err = consumer.Start()
 	requireNoError(t, err)
 
 	// publish a message.
@@ -1418,14 +1751,6 @@ func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) { //no
 		clarimq.WithConnectionOptionBackOffFactor(1),
 	)
 
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumeConn.Close()
-		requireNoError(t, err)
-	})
-
 	// msgCounter is used to count the number of deliveries, to compare it afterwords.
 	var msgCounter int
 
@@ -1442,14 +1767,27 @@ func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) { //no
 	queueName := stringGen()
 
 	// creating a consumer.
-	_, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+	consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
 		clarimq.WithQueueOptionDurable(true),
 		clarimq.WithConsumerOptionConsumerName(stringGen()),
 	)
 	requireNoError(t, err)
 
+	t.Cleanup(func() {
+		err := consumer.Close()
+		requireNoError(t, err)
+	})
+
 	// creating a publisher.
 	publisher, err := clarimq.NewPublisher(publishConn)
+	requireNoError(t, err)
+
+	t.Cleanup(func() {
+		err := publisher.Close()
+		requireNoError(t, err)
+	})
+
+	err = consumer.Start()
 	requireNoError(t, err)
 
 	// publish a message.
@@ -1535,14 +1873,6 @@ func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // inte
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
 	)
 
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumeConn.Close()
-		requireNoError(t, err)
-	})
-
 	wg := &sync.WaitGroup{}
 
 	wg.Add(1)
@@ -1558,10 +1888,15 @@ func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // inte
 	queueName := stringGen()
 
 	// creating a consumer.
-	_, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+	consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
 		clarimq.WithQueueOptionDurable(true),
 	)
 	requireNoError(t, err)
+
+	t.Cleanup(func() {
+		err := consumer.Close()
+		requireNoError(t, err)
+	})
 
 	// creating a publisher.
 	publisher, err := clarimq.NewPublisher(publishConn,
@@ -1575,6 +1910,9 @@ func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // inte
 		requireNoError(t, err)
 	})
 
+	err = consumer.Start()
+	requireNoError(t, err)
+
 	err = publisher.Publish(context.Background(), queueName, message)
 	requireNoError(t, err)
 
@@ -1584,7 +1922,7 @@ func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // inte
 	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
 	requireNoError(t, err)
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		// publish messages to the queue with while not connected.
 		if err := publisher.Publish(context.Background(), queueName, message); !errors.Is(err, clarimq.ErrPublishFailedChannelClosedCached) {
 			t.Fatal()
@@ -1604,189 +1942,6 @@ func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // inte
 	requireNoError(t, err)
 }
 
-func Test_MaxRetriesExceededHandler(t *testing.T) {
-	t.Parallel()
-
-	message := "test-message"
-
-	publishConn := getConnection(t,
-		clarimq.WithConnectionOptionBackOffFactor(1),
-		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
-	)
-
-	// declaring a mutex protected consumeConnLogBuffer.
-	consumeConnLogBuffer := &testBuffer{
-		mtx:  new(sync.Mutex),
-		buff: new(bytes.Buffer),
-	}
-
-	consumeConn := getConnection(t,
-		clarimq.WithConnectionOptionLoggers(newTestLogger(consumeConnLogBuffer)),
-		clarimq.WithConnectionOptionBackOffFactor(1),
-		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
-	)
-
-	t.Cleanup(func() {
-		err := publishConn.Close()
-		requireNoError(t, err)
-
-		err = consumeConn.Close()
-		requireNoError(t, err)
-	})
-
-	t.Run("no error", func(t *testing.T) {
-		t.Parallel()
-
-		wg := new(sync.WaitGroup)
-
-		wg.Add(1)
-
-		handler := func(msg *clarimq.Delivery) clarimq.Action {
-			requireEqual(t, message, string(msg.Body))
-
-			// always discard the message to requeue via dlx-exchange.
-			return clarimq.NackDiscard
-		}
-
-		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
-			requireEqual(t, message, string(delivery.Body))
-
-			wg.Done()
-
-			return nil
-		}
-
-		queueName := stringGen()
-
-		// creating a consumer.
-		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
-			clarimq.WithQueueOptionDurable(true),
-			clarimq.WithExchangeOptionDeclare(true),
-			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
-			clarimq.WithExchangeOptionName("text-exchange"),
-			clarimq.WithQueueOptionDeclare(true),
-			clarimq.WithConsumerOptionDeadLetterRetry(&clarimq.RetryOptions{
-				RetryConn:                 publishConn,
-				MaxRetries:                2,
-				Delays:                    []time.Duration{time.Second},
-				MaxRetriesExceededHandler: maxRetriesExceededHandler,
-			}),
-		)
-		requireNoError(t, err)
-
-		t.Cleanup(func() {
-			err := consumer.Close()
-			requireNoError(t, err)
-		})
-
-		// creating a publisher.
-		publisher, err := clarimq.NewPublisher(publishConn,
-			clarimq.WithPublishOptionMandatory(true),
-			clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
-		)
-		requireNoError(t, err)
-
-		t.Cleanup(func() {
-			err := publisher.Close()
-			requireNoError(t, err)
-		})
-
-		// publish the message.
-		err = publisher.Publish(context.Background(), queueName, message)
-		requireNoError(t, err)
-
-		// waiting for the maxRetriesExceededHandler to handle the max retries exceed "case".
-		wg.Wait()
-	})
-
-	t.Run("with error", func(t *testing.T) {
-		t.Parallel()
-
-		wg := new(sync.WaitGroup)
-
-		wg.Add(1)
-
-		handler := func(msg *clarimq.Delivery) clarimq.Action {
-			requireEqual(t, message, string(msg.Body))
-
-			// always discard the message to requeue via dlx-exchange.
-			return clarimq.NackDiscard
-		}
-
-		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
-			requireEqual(t, message, string(delivery.Body))
-
-			return errors.New("error-from-max-retries-exceeded-handler") //nolint:goerr113 // test code
-		}
-
-		queueName := stringGen()
-
-		// creating a consumer.
-		consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
-			clarimq.WithQueueOptionDurable(true),
-			clarimq.WithExchangeOptionDeclare(true),
-			clarimq.WithExchangeOptionKind(clarimq.ExchangeTopic),
-			clarimq.WithExchangeOptionName("text-exchange"),
-			clarimq.WithQueueOptionDeclare(true),
-			clarimq.WithConsumerOptionDeadLetterRetry(&clarimq.RetryOptions{
-				RetryConn:                 publishConn,
-				MaxRetries:                2,
-				Delays:                    []time.Duration{time.Second}, // 1 second to keep testing short
-				MaxRetriesExceededHandler: maxRetriesExceededHandler,
-			}),
-		)
-		requireNoError(t, err)
-
-		t.Cleanup(func() {
-			err := consumer.Close()
-			requireNoError(t, err)
-		})
-
-		// creating a publisher.
-		publisher, err := clarimq.NewPublisher(publishConn,
-			clarimq.WithPublishOptionMandatory(true),
-			clarimq.WithPublisherOptionPublishingCache(cache.NewBasicMemoryCache()),
-		)
-		requireNoError(t, err)
-
-		t.Cleanup(func() {
-			err := publisher.Close()
-			requireNoError(t, err)
-		})
-
-		// publish the message.
-		err = publisher.Publish(context.Background(), queueName, message)
-		requireNoError(t, err)
-
-		// read the log buffer and check if the error from the maxRetriesExceededHandler was logged.
-		func(buffer *testBuffer) {
-			defer wg.Done()
-
-			for {
-				line, err := buffer.ReadBytes('\n')
-				if errors.Is(err, io.EOF) {
-					continue
-				}
-
-				var logEntry logEntry
-
-				_ = json.Unmarshal(line, &logEntry)
-
-				if buffer.Len() == 0 {
-					buffer.Reset()
-				}
-
-				if strings.Contains(logEntry.Msg, "error-from-max-retries-exceeded-handler") {
-					return
-				}
-			}
-		}(consumeConnLogBuffer)
-
-		// waiting for the maxRetriesExceededHandler error to be logged.
-		wg.Wait()
-	})
-}
-
 // ##### helper functions: ##########################
 
 // Returns a new connection with the given options.
@@ -1803,6 +1958,11 @@ func getConnection(t *testing.T, options ...clarimq.ConnectionOption) *clarimq.C
 	)
 
 	requireNoError(t, err)
+
+	t.Cleanup(func() {
+		err := conn.Close()
+		requireNoError(t, err)
+	})
 
 	return conn
 }

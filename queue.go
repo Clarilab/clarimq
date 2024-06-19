@@ -41,36 +41,40 @@ func defaultQueueOptions() *QueueOptions {
 	}
 }
 
-func declareQueue(channel *amqp.Channel, options *QueueOptions) error {
+func declareQueue(channelExec channelExec, options *QueueOptions) error {
 	const errMessage = "failed to declare queue: %w"
 
 	if !options.Declare {
 		return nil
 	}
 
-	if options.Passive {
-		if _, err := channel.QueueDeclarePassive(
+	if err := channelExec(func(channel *amqp.Channel) error {
+		var err error
+
+		if options.Passive {
+			_, err = channel.QueueDeclarePassive(
+				options.name,
+				options.Durable,
+				options.AutoDelete,
+				options.Exclusive,
+				options.NoWait,
+				amqp.Table(options.Args),
+			)
+
+			return err //nolint:wrapcheck // intended
+		}
+
+		_, err = channel.QueueDeclare(
 			options.name,
 			options.Durable,
 			options.AutoDelete,
 			options.Exclusive,
 			options.NoWait,
 			amqp.Table(options.Args),
-		); err != nil {
-			return fmt.Errorf(errMessage, err)
-		}
+		)
 
-		return nil
-	}
-
-	if _, err := channel.QueueDeclare(
-		options.name,
-		options.Durable,
-		options.AutoDelete,
-		options.Exclusive,
-		options.NoWait,
-		amqp.Table(options.Args),
-	); err != nil {
+		return err //nolint:wrapcheck // intended
+	}); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
