@@ -50,7 +50,7 @@ func defaultBindingOptions() *BindingOptions {
 	}
 }
 
-func declareBindings(channel *amqp.Channel, queueName, exchangeName string, bindings []Binding) error {
+func declareBindings(channelExec channelExec, queueName, exchangeName string, bindings []Binding) error {
 	const errMessage = "failed to declare binding: %w"
 
 	for _, binding := range bindings {
@@ -58,13 +58,15 @@ func declareBindings(channel *amqp.Channel, queueName, exchangeName string, bind
 			continue
 		}
 
-		if err := channel.QueueBind(
-			binding.defaultQueueNameOr(queueName),
-			binding.RoutingKey,
-			binding.defaultExchangeNameOr(exchangeName),
-			binding.NoWait,
-			amqp.Table(binding.Args),
-		); err != nil {
+		if err := channelExec(func(c *amqp.Channel) error {
+			return c.QueueBind(
+				binding.defaultQueueNameOr(queueName),
+				binding.RoutingKey,
+				binding.defaultExchangeNameOr(exchangeName),
+				binding.NoWait,
+				amqp.Table(binding.Args),
+			)
+		}); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 	}

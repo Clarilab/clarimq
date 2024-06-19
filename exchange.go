@@ -44,15 +44,27 @@ func defaultExchangeOptions() *ExchangeOptions {
 	}
 }
 
-func declareExchange(channel *amqp.Channel, options *ExchangeOptions) error {
+func declareExchange(channelExec channelExec, options *ExchangeOptions) error {
 	const errMessage = "failed to declare exchange: %w"
 
 	if !options.Declare {
 		return nil
 	}
 
-	if options.Passive {
-		if err := channel.ExchangeDeclarePassive(
+	if err := channelExec(func(channel *amqp.Channel) error {
+		if options.Passive {
+			return channel.ExchangeDeclarePassive(
+				options.Name,
+				options.Kind,
+				options.Durable,
+				options.AutoDelete,
+				options.Internal,
+				options.NoWait,
+				amqp.Table(options.Args),
+			)
+		}
+
+		return channel.ExchangeDeclare(
 			options.Name,
 			options.Kind,
 			options.Durable,
@@ -60,22 +72,8 @@ func declareExchange(channel *amqp.Channel, options *ExchangeOptions) error {
 			options.Internal,
 			options.NoWait,
 			amqp.Table(options.Args),
-		); err != nil {
-			return fmt.Errorf(errMessage, err)
-		}
-
-		return nil
-	}
-
-	if err := channel.ExchangeDeclare(
-		options.Name,
-		options.Kind,
-		options.Durable,
-		options.AutoDelete,
-		options.Internal,
-		options.NoWait,
-		amqp.Table(options.Args),
-	); err != nil {
+		)
+	}); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 

@@ -10,11 +10,11 @@ import (
 type (
 	// Consumer is a consumer for AMQP messages.
 	Consumer struct {
-		conn         *Connection
-		options      *ConsumeOptions
-		handler      HandlerFunc
-		recoveryChan chan error
-		isConsuming  bool
+		conn        *Connection
+		channelExec channelExec
+		options     *ConsumeOptions
+		handler     HandlerFunc
+		isConsuming bool
 	}
 
 	// Delivery captures the fields for a previously delivered message resident in
@@ -45,13 +45,13 @@ func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, option
 	opt.QueueOptions.name = queueName
 
 	consumer := &Consumer{
-		conn:         conn,
-		options:      opt,
-		handler:      handler,
-		recoveryChan: make(chan error),
+		conn:        conn,
+		channelExec: conn.channelExec,
+		options:     opt,
+		handler:     handler,
 	}
 
-	conn.addConsumerRecoveryChan(consumer.options.ConsumerOptions.Name, consumer.recoveryChan)
+	conn.addConsumerRecoveryFN(consumer.options.ConsumerOptions.Name, consumer.recoverConsumer)
 
 	if err := consumer.setupConsumer(); err != nil {
 		return nil, fmt.Errorf(errMessage, err)
@@ -83,8 +83,6 @@ func (c *Consumer) Close() error {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	close(c.recoveryChan)
-
 	c.isConsuming = false
 
 	return nil
@@ -93,8 +91,7 @@ func (c *Consumer) Close() error {
 func (c *Consumer) setupConsumer() error {
 	const errMessage = "failed to setup consumer: %w"
 
-	if err := handleDeclarations(
-		c.conn.amqpChannel,
+	if err := c.handleDeclarations(
 		c.options.ExchangeOptions,
 		c.options.QueueOptions,
 		c.options.Bindings,
@@ -125,24 +122,32 @@ func (c *Consumer) Start() error {
 func (c *Consumer) startConsuming() error {
 	const errMessage = "failed to start consuming: %w"
 
-	deliveries, err := c.conn.amqpChannel.Consume(
-		c.options.QueueOptions.name,
-		c.options.ConsumerOptions.Name,
-		c.options.ConsumerOptions.AutoAck,
-		c.options.ConsumerOptions.Exclusive,
-		false, // always set to false since RabbitMQ does not support immediate publishing
-		c.options.ConsumerOptions.NoWait,
-		amqp.Table(c.options.ConsumerOptions.Args),
-	)
-	if err != nil {
+	var deliveries <-chan amqp.Delivery
+
+	if err := c.channelExec(func(channel *amqp.Channel) error {
+		var err error
+
+		deliveries, err = channel.Consume(
+			c.options.QueueOptions.name,
+			c.options.ConsumerOptions.Name,
+			c.options.ConsumerOptions.AutoAck,
+			c.options.ConsumerOptions.Exclusive,
+			false, // always set to false since RabbitMQ does not support immediate publishing
+			c.options.ConsumerOptions.NoWait,
+			amqp.Table(c.options.ConsumerOptions.Args),
+		)
+		if err != nil {
+			return fmt.Errorf(errMessage, err)
+		}
+
+		return nil
+	}); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
 	for range c.options.HandlerQuantity {
 		go c.handlerRoutine(deliveries)
 	}
-
-	c.watchRecoveryChan()
 
 	c.isConsuming = true
 
@@ -151,18 +156,18 @@ func (c *Consumer) startConsuming() error {
 	return nil
 }
 
-func handleDeclarations(channel *amqp.Channel, exchangeOptions *ExchangeOptions, queueOptions *QueueOptions, bindings []Binding) error {
+func (c *Consumer) handleDeclarations(exchangeOptions *ExchangeOptions, queueOptions *QueueOptions, bindings []Binding) error {
 	const errMessage = "failed to handle declarations: %w"
 
-	if err := declareExchange(channel, exchangeOptions); err != nil {
+	if err := declareExchange(c.channelExec, exchangeOptions); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	if err := declareQueue(channel, queueOptions); err != nil {
+	if err := declareQueue(c.channelExec, queueOptions); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
-	if err := declareBindings(channel, queueOptions.name, exchangeOptions.Name, bindings); err != nil {
+	if err := declareBindings(c.channelExec, queueOptions.name, exchangeOptions.Name, bindings); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
 
@@ -173,7 +178,7 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery) {
 	for delivery := range deliveries {
 		delivery := &Delivery{delivery}
 
-		if c.conn.amqpChannel.IsClosed() {
+		if c.conn.isClosed() {
 			c.conn.logger.logDebug(context.Background(), "message handler stopped: channel is closed")
 
 			break
@@ -221,17 +226,16 @@ func (c *Consumer) handleMessage(delivery *Delivery) Action {
 	return action
 }
 
-func (c *Consumer) watchRecoveryChan() {
-	go func() {
-		for {
-			select {
-			case _, ok := <-c.recoveryChan:
-				if !ok {
-					return
-				}
+func (c *Consumer) recoverConsumer() error {
+	const errMessage = "failed to recover consumer: %w"
 
-				c.recoveryChan <- c.startConsuming()
-			}
-		}
-	}()
+	if err := c.setupConsumer(); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	if err := c.startConsuming(); err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	return nil
 }
