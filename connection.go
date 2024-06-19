@@ -381,11 +381,7 @@ func (c *Connection) watchChannelNotifications() {
 
 				return
 
-			case tag, ok := <-cancelChan:
-				if !ok {
-					continue
-				}
-
+			case tag := <-cancelChan:
 				c.logger.logWarn(logCtx, "cancel exception", "cause", tag)
 
 			case rtn := <-returnChan:
