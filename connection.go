@@ -194,7 +194,7 @@ func (c *Connection) closeForRenewal() error {
 //
 // When ifEmpty is true, the queue will not be deleted if there are any messages remaining on the queue.
 // If there are messages, an error will be returned and the channel will be closed.
-func (c *Connection) RemoveQueue(name string, ifUnused bool, ifEmpty bool, noWait bool) (int, error) {
+func (c *Connection) RemoveQueue(name string, ifUnused, ifEmpty, noWait bool) (int, error) {
 	const errMessage = "failed to remove queue: %w"
 
 	purgedMessages, err := c.amqpChannel.QueueDelete(name, ifUnused, ifEmpty, noWait)
@@ -208,7 +208,7 @@ func (c *Connection) RemoveQueue(name string, ifUnused bool, ifEmpty bool, noWai
 // RemoveBinding removes a binding between an exchange and queue matching the key and arguments.
 //
 // It is possible to send and empty string for the exchange name which means to unbind the queue from the default exchange.
-func (c *Connection) RemoveBinding(queueName string, routingKey string, exchangeName string, args Table) error {
+func (c *Connection) RemoveBinding(queueName, routingKey, exchangeName string, args Table) error {
 	const errMessage = "failed to remove binding: %w"
 
 	if err := c.amqpChannel.QueueUnbind(queueName, routingKey, exchangeName, amqp.Table(args)); err != nil {
@@ -227,7 +227,7 @@ func (c *Connection) RemoveBinding(queueName string, routingKey string, exchange
 //
 // When noWait is true, do not wait for a broker confirmation that the exchange has been deleted.
 // Failing to delete the channel could close the channel. Add a NotifyClose listener to respond to these channel exceptions.
-func (c *Connection) RemoveExchange(name string, ifUnused bool, noWait bool) error {
+func (c *Connection) RemoveExchange(name string, ifUnused, noWait bool) error {
 	const errMessage = "failed to remove exchange: %w"
 
 	if err := c.amqpChannel.ExchangeDelete(name, ifUnused, noWait); err != nil {
