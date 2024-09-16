@@ -2,6 +2,7 @@ package clarimq
 
 import (
 	"context"
+	"log/slog"
 )
 
 // Logger is an interface that is be used for log messages.
@@ -42,4 +43,49 @@ func (l *logger) logWarn(ctx context.Context, msg string, args ...any) {
 	for i := range l.loggers {
 		l.loggers[i].Warn(ctx, msg, args...)
 	}
+}
+
+// SlogLogger is a clarimq.Logger implementation that uses slog.Logger.
+type SlogLogger struct {
+	logger *slog.Logger
+}
+
+// Debug logs a debug message with the provided attributes.
+func (s *SlogLogger) Debug(ctx context.Context, msg string, attrs ...any) {
+	s.logger.DebugContext(ctx, msg, attrs...)
+}
+
+// Info logs an info message with the provided attributes.
+func (s *SlogLogger) Info(ctx context.Context, msg string, attrs ...any) {
+	s.logger.InfoContext(ctx, msg, attrs...)
+}
+
+// Warn logs a warning message with the provided attributes.
+func (s *SlogLogger) Warn(ctx context.Context, msg string, attrs ...any) {
+	s.logger.WarnContext(ctx, msg, attrs...)
+}
+
+// Error logs an error message with the provided attributes and error.
+func (s *SlogLogger) Error(ctx context.Context, msg string, err error, attrs ...any) {
+	if err != nil {
+		attrs = append(attrs, "error", err.Error())
+	}
+
+	s.logger.ErrorContext(ctx, msg, attrs...)
+}
+
+// NewSlogLogger creates a new instance of SlogLogger.
+// If a logger is not provided, it will use the default slog.Logger.
+//
+// Parameters:
+// - logger: A pointer to a slog.Logger instance. If nil, it will use the default logger.
+//
+// Returns:
+// - A new SlogLogger instance that implements the clarimq.Logger.
+func NewSlogLogger(logger *slog.Logger) *SlogLogger {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	return &SlogLogger{logger}
 }
