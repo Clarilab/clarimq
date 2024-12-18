@@ -205,6 +205,17 @@ func (c *Connection) RemoveQueue(name string, ifUnused, ifEmpty, noWait bool) (i
 	return purgedMessages, nil
 }
 
+func (c *Connection) InspectQueue(name string) (*QueueInfo, error) {
+	const errMessage = "failed to inspect queue: %w"
+
+	result, err := getQueueInfo(c.channelExec, name)
+	if err != nil {
+		return nil, fmt.Errorf(errMessage, err)
+	}
+
+	return result, nil
+}
+
 // RemoveBinding removes a binding between an exchange and queue matching the key and arguments.
 //
 // It is possible to send and empty string for the exchange name which means to unbind the queue from the default exchange.
