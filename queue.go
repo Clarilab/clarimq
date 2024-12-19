@@ -6,6 +6,9 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// QueueInfo represents the current server state of a queue on the server.
+type QueueInfo amqp.Queue
+
 // QueueOptions are used to configure a queue.
 // A passive queue is assumed by RabbitMQ to already exist, and attempting to connect
 // to a non-existent queue will cause RabbitMQ to throw an exception.
@@ -79,4 +82,27 @@ func declareQueue(channelExec channelExec, options *QueueOptions) error {
 	}
 
 	return nil
+}
+
+func getQueueInfo(channelExec channelExec, name string) (*QueueInfo, error) {
+	const errMessage = "failed to get queue info: %w"
+
+	result := new(QueueInfo)
+
+	exec := func(channel *amqp.Channel) error {
+		q, err := channel.QueueDeclarePassive(name, false, false, false, false, nil)
+		if err != nil {
+			return fmt.Errorf(errMessage, err)
+		}
+
+		*result = QueueInfo(q)
+
+		return nil
+	}
+
+	if err := channelExec(exec); err != nil {
+		return nil, fmt.Errorf(errMessage, err)
+	}
+
+	return result, nil
 }

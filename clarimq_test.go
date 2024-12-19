@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -988,6 +989,44 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 			requireNoError(t, err)
 		})
 	}
+}
+
+func Test_Integration_InspectQueue(t *testing.T) {
+	t.Parallel()
+
+	var queueName = stringGen()
+
+	conn := getConnection(t)
+
+	consumer, err := clarimq.NewConsumer(
+		conn,
+		queueName,
+		nil,
+		clarimq.WithQueueOptionDurable(true),
+		clarimq.WithQueueOptionAutoDelete(true),
+	)
+	requireNoError(t, err)
+
+	t.Cleanup(func() { requireNoError(t, consumer.Close()) })
+
+	publisher, err := clarimq.NewPublisher(conn)
+	requireNoError(t, err)
+
+	t.Cleanup(func() { requireNoError(t, publisher.Close()) })
+
+	for i := range 10 {
+		err = publisher.Publish(context.Background(), queueName, "test-message-"+strconv.Itoa(i+1))
+		requireNoError(t, err)
+	}
+
+	time.Sleep(time.Second * 2)
+
+	queueInfo, err := conn.InspectQueue(queueName)
+	requireNoError(t, err)
+
+	requireEqual(t, queueName, queueInfo.Name)
+	requireEqual(t, 10, queueInfo.Messages)
+	requireEqual(t, 0, queueInfo.Consumers)
 }
 
 func Test_Integration_ReturnHandler(t *testing.T) {
