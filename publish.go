@@ -152,6 +152,8 @@ func (p *Publisher) internalPublish(ctx context.Context, routingKeys []string, d
 func (p *Publisher) sendMessage(ctx context.Context, routingKeys []string, body []byte, options *PublishOptions) error {
 	const errMessage = "failed to send message: %w"
 
+	fmt.Println(" ===> sendMessage: ", routingKeys)
+
 	for _, key := range routingKeys {
 		if options.MessageID == "" {
 			options.MessageID = newRandomString()
@@ -178,18 +180,28 @@ func (p *Publisher) sendMessage(ctx context.Context, routingKeys []string, body 
 			AppId:           options.AppID,
 		}
 
-		if err := p.channelExec(func(channel *amqp.Channel) error {
-			return channel.PublishWithContext(
-				ctx,
+		err := p.channelExec(func(channel *amqp.Channel) error {
+			// attach tracing
+			sctx, message, errHandler := spanForPublication(ctx, message, options.Exchange, key, false)
+
+			err := channel.PublishWithContext(
+				sctx,
 				options.Exchange,
 				key,
 				options.Mandatory,
 				false, // always set to false since RabbitMQ does not support immediate publishing
 				message,
 			)
-		}); err != nil {
+
+			// let tracing handle the error aswell
+			errHandler(err)
+
+			return err
+		})
+		if err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
+
 	}
 
 	return nil

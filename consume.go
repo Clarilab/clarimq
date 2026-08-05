@@ -178,6 +178,17 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery) {
 	for delivery := range deliveries {
 		delivery := &Delivery{delivery}
 
+		fmt.Println(" <=== handleMessage", delivery.AppId, delivery.UserId, delivery.ConsumerTag)
+		
+		ctx, dspan := spanForDelivery(context.Background(), delivery)
+		AddDeliveryAttributes(dspan, *delivery, c.options.QueueOptions.name)
+		dspan.End()
+
+
+		spanName := fmt.Sprintf("handle %s %s", delivery.Exchange, delivery.RoutingKey)
+		tracer.Start(ctx, spanName)
+
+
 		if c.conn.isClosed() {
 			c.conn.logger.logDebug(context.Background(), "message handler stopped: channel is closed")
 
@@ -192,19 +203,30 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery) {
 
 		switch c.handleMessage(delivery) {
 		case Ack:
+			sctx, span := settleAckDelivery(ctx, delivery, false)
+
 			if err := delivery.Ack(false); err != nil {
-				c.conn.logger.logError(context.Background(), "could not ack message: %v", err)
+				c.conn.logger.logError(sctx, "could not ack message: %v", err)
 			}
 
+			span.End()
 		case NackDiscard:
+			sctx, span := settleNackDelivery(ctx, delivery, false, false)
+
 			if err := delivery.Nack(false, false); err != nil {
-				c.conn.logger.logError(context.Background(), "could not nack message: %v", err)
+				c.conn.logger.logError(sctx, "could not nack message: %v", err)
 			}
+
+			span.End()
 
 		case NackRequeue:
+			sctx, span := settleNackDelivery(ctx, delivery, false, true)
+
 			if err := delivery.Nack(false, true); err != nil {
-				c.conn.logger.logError(context.Background(), "could not nack message: %v", err)
+				c.conn.logger.logError(sctx, "could not nack message: %v", err)
 			}
+
+			span.End()
 
 		case Manual:
 			continue
