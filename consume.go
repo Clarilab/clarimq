@@ -88,6 +88,17 @@ func (c *Consumer) Close() error {
 	return nil
 }
 
+// Start starts consuming messages from the subscribed queue.
+func (c *Consumer) Start() error {
+	const errMessage = "failed to start: %w"
+
+	if c.isConsuming {
+		return fmt.Errorf(errMessage, ErrConsumerAlreadyRunning)
+	}
+
+	return c.startConsuming()
+}
+
 func (c *Consumer) setupConsumer() error {
 	const errMessage = "failed to setup consumer: %w"
 
@@ -106,17 +117,6 @@ func (c *Consumer) setupConsumer() error {
 	}
 
 	return nil
-}
-
-// Start starts consuming messages from the subscribed queue.
-func (c *Consumer) Start() error {
-	const errMessage = "failed to start: %w"
-
-	if c.isConsuming {
-		return fmt.Errorf(errMessage, ErrConsumerAlreadyRunning)
-	}
-
-	return c.startConsuming()
 }
 
 func (c *Consumer) startConsuming() error {

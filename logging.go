@@ -50,6 +50,22 @@ type SlogLogger struct {
 	logger *slog.Logger
 }
 
+// NewSlogLogger creates a new instance of SlogLogger.
+// If a logger is not provided, it will use the default slog.Logger.
+//
+// Parameters:
+// - logger: A pointer to a slog.Logger instance. If nil, it will use the default logger.
+//
+// Returns:
+// - A new SlogLogger instance that implements the clarimq.Logger.
+func NewSlogLogger(logger *slog.Logger) *SlogLogger {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	return &SlogLogger{logger}
+}
+
 // Debug logs a debug message with the provided attributes.
 func (s *SlogLogger) Debug(ctx context.Context, msg string, attrs ...any) {
 	s.logger.DebugContext(ctx, msg, attrs...)
@@ -72,20 +88,4 @@ func (s *SlogLogger) Error(ctx context.Context, msg string, err error, attrs ...
 	}
 
 	s.logger.ErrorContext(ctx, msg, attrs...)
-}
-
-// NewSlogLogger creates a new instance of SlogLogger.
-// If a logger is not provided, it will use the default slog.Logger.
-//
-// Parameters:
-// - logger: A pointer to a slog.Logger instance. If nil, it will use the default logger.
-//
-// Returns:
-// - A new SlogLogger instance that implements the clarimq.Logger.
-func NewSlogLogger(logger *slog.Logger) *SlogLogger {
-	if logger == nil {
-		logger = slog.Default()
-	}
-
-	return &SlogLogger{logger}
 }

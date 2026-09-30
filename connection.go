@@ -164,28 +164,6 @@ func (c *Connection) Renew(uri ...string) error {
 	return nil
 }
 
-func (c *Connection) closeForRenewal() error {
-	const errMessage = "failed to close the connection to the broker gracefully on renewal: %w"
-
-	if c.amqpConnection != nil {
-		logCtx := context.Background()
-
-		c.logger.logDebug(logCtx, "closing connection")
-
-		c.connectionCloseWG.Add(closeWGDelta)
-
-		if err := c.amqpConnection.Close(); err != nil {
-			return fmt.Errorf(errMessage, err)
-		}
-
-		c.connectionCloseWG.Wait()
-
-		c.logger.logDebug(logCtx, "gracefully closed connection to the broker")
-	}
-
-	return nil
-}
-
 // RemoveQueue removes the queue from the broker including all bindings then purges the messages based on
 // broker configuration, returning the number of messages purged.
 //
@@ -254,6 +232,28 @@ func (c *Connection) DecodeDeliveryBody(delivery Delivery, v any) error {
 
 	if err := c.options.codec.Decoder(delivery.Body, v); err != nil {
 		return fmt.Errorf(errMessage, err)
+	}
+
+	return nil
+}
+
+func (c *Connection) closeForRenewal() error {
+	const errMessage = "failed to close the connection to the broker gracefully on renewal: %w"
+
+	if c.amqpConnection != nil {
+		logCtx := context.Background()
+
+		c.logger.logDebug(logCtx, "closing connection")
+
+		c.connectionCloseWG.Add(closeWGDelta)
+
+		if err := c.amqpConnection.Close(); err != nil {
+			return fmt.Errorf(errMessage, err)
+		}
+
+		c.connectionCloseWG.Wait()
+
+		c.logger.logDebug(logCtx, "gracefully closed connection to the broker")
 	}
 
 	return nil
