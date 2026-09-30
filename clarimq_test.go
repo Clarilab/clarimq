@@ -504,6 +504,7 @@ func Test_Integration_Consume(t *testing.T) {
 				return func(d *clarimq.Delivery) clarimq.Action {
 					requireEqual(t, expectedMessage, string(d.Body))
 					requireEqual(t, "text/plain", d.ContentType)
+
 					counter++
 
 					switch counter {
@@ -994,7 +995,7 @@ func Test_Integration_ManualRemoveExchangeQueueAndBindings(t *testing.T) {
 func Test_Integration_InspectQueue(t *testing.T) {
 	t.Parallel()
 
-	var queueName = stringGen()
+	queueName := stringGen()
 
 	conn := getConnection(t)
 
@@ -1361,7 +1362,7 @@ func Test_Integration_MaxRetriesExceededHandler(t *testing.T) {
 		maxRetriesExceededHandler := func(delivery *clarimq.Delivery) error {
 			requireEqual(t, message, string(delivery.Body))
 
-			return errors.New("error-from-max-retries-exceeded-handler") //nolint:goerr113 // test code
+			return errors.New("error-from-max-retries-exceeded-handler") //nolint:err113 // test code
 		}
 
 		queueName := stringGen()
@@ -1628,7 +1629,7 @@ type logEntry struct {
 	Msg   string    `json:"msg"`
 }
 
-func Test_Recovery_AutomaticRecovery(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+func Test_Recovery_AutomaticRecovery(t *testing.T) {
 	// used to wait until the handler processed the deliveries.
 	doneChan := make(chan struct{})
 
@@ -1771,7 +1772,7 @@ func watchConnLogBuffer(buffer *testBuffer, wg *sync.WaitGroup) {
 	}
 }
 
-func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) {
 	// used to wait until the handler processed the deliveries.
 	doneChan := make(chan struct{})
 
@@ -1889,14 +1890,13 @@ func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) { //no
 
 func handleFailedRecovery(chn <-chan error, wg *sync.WaitGroup) {
 	for err := range chn {
-
 		if _, ok := errors.AsType[*clarimq.RecoveryFailedError](err); ok {
 			wg.Done()
 		}
 	}
 }
 
-func Test_Recovery_PublishingCache(t *testing.T) { //nolint:paralleltest // intentional: must not run in parallel
+func Test_Recovery_PublishingCache(t *testing.T) {
 	message := "test-message"
 
 	publishConn := getConnection(t,
@@ -2004,7 +2004,7 @@ func getConnection(t *testing.T, options ...clarimq.ConnectionOption) *clarimq.C
 }
 
 // Compares two values and reports an error if they are not equal.
-func requireEqual(t *testing.T, expected any, actual any) {
+func requireEqual(t *testing.T, expected, actual any) {
 	t.Helper()
 
 	equal := reflect.DeepEqual(expected, actual)

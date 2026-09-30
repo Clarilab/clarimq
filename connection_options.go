@@ -33,6 +33,7 @@ type (
 	// ConnectionOptions are used to describe how a new connection will be created.
 	ConnectionOptions struct {
 		ReturnHandler
+
 		loggers            []Logger
 		Config             *Config
 		codec              *codec
@@ -182,14 +183,14 @@ func (c *Connection) SetLoggers(loggers ...Logger) {
 	}
 }
 
-// SetReturnHandler provides possibility to set the json encoder.
+// SetEncoder provides possibility to set the json encoder.
 func (c *Connection) SetEncoder(encoder JSONEncoder) {
 	if encoder != nil {
 		c.options.codec.Encoder = encoder
 	}
 }
 
-// SetReturnHandler provides possibility to set the json decoder.
+// SetDecoder provides possibility to set the json decoder.
 func (c *Connection) SetDecoder(decoder JSONDecoder) {
 	if decoder != nil {
 		c.options.codec.Decoder = decoder

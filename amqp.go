@@ -18,7 +18,7 @@ const (
 	NackDiscard
 	// NackRequeue deliver this message to a different consumer.
 	NackRequeue
-	// Message acknowledgement is left to the user using the msg.Ack() method.
+	// Manual acknowledgement is left to the user using the msg.Ack() method.
 	Manual
 )
 
@@ -29,7 +29,7 @@ const (
 	LowestPriority
 	// LowPriority indicates that the message should be published with low priority.
 	LowPriority
-	// NormalPriority indicates that the message should be published with normal priority.
+	// MediumPriority indicates that the message should be published with normal priority.
 	MediumPriority
 	// HighPriority indicates that the message should be published with high priority.
 	HighPriority
@@ -38,20 +38,20 @@ const (
 )
 
 const (
-	// Constant for RabbitMQ's default exchange (direct exchange).
+	// ExchangeDefault constant for RabbitMQ's default exchange (direct exchange).
 	ExchangeDefault string = amqp.DefaultExchange
-	// Constant for standard AMQP 0-9-1 direct exchange type.
+	// ExchangeDirect constant for standard AMQP 0-9-1 direct exchange type.
 	ExchangeDirect string = amqp.ExchangeDirect
-	// Constant for standard AMQP 0-9-1 fanout exchange type.
+	// ExchangeFanout constant for standard AMQP 0-9-1 fanout exchange type.
 	ExchangeFanout string = amqp.ExchangeFanout
-	// Constant for standard AMQP 0-9-1 topic exchange type.
+	// ExchangeTopic constant for standard AMQP 0-9-1 topic exchange type.
 	ExchangeTopic string = amqp.ExchangeTopic
-	// Constant for standard AMQP 0-9-1 headers exchange type.
+	// ExchangeHeaders constant for standard AMQP 0-9-1 headers exchange type.
 	ExchangeHeaders string = amqp.ExchangeHeaders
 )
 
 type (
-	// The delivery mode of a message can be either transient or persistent.
+	// DeliveryMode of a message can be either transient or persistent.
 	DeliveryMode uint8
 
 	// Priority of a message can be either no priority, lowest, low, medium, high or highest.

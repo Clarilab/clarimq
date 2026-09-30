@@ -25,7 +25,7 @@ type Publisher struct {
 	publishingCacheMU *sync.Mutex
 }
 
-// Creates a new Publisher instance. Options can be passed to customize the behavior of the Publisher.
+// NewPublisher creates a new Publisher instance. Options can be passed to customize the behavior of the Publisher.
 func NewPublisher(conn *Connection, options ...PublisherOption) (*Publisher, error) {
 	const errMessage = "failed to create publisher: %w"
 
@@ -118,6 +118,48 @@ func (p *Publisher) PublishWithOptions(ctx context.Context, targets []string, da
 	}
 
 	return p.internalPublish(ctx, targets, data, opt.PublishingOptions)
+}
+
+// ErrCacheNotSet occurs when the publishing cache is not set.
+var ErrCacheNotSet = errors.New("publishing cache is not set")
+
+func (p *Publisher) PublishCachedMessages(ctx context.Context, cacheLen int) error {
+	const errMessage = "failed to publish cached messages: %w"
+
+	if p.options.PublishingCache == nil {
+		return fmt.Errorf(errMessage, ErrCacheNotSet)
+	}
+
+	p.publishingCacheMU.Lock()
+	publishings, err := p.options.PublishingCache.PopAll()
+	p.publishingCacheMU.Unlock()
+
+	if err != nil {
+		return fmt.Errorf(errMessage, err)
+	}
+
+	for i := range publishings {
+		p.publishingCacheMU.Lock()
+
+		targets := publishings[i].GetTargets()
+		data := publishings[i].GetData()
+		options := publishings[i].GetOptions()
+
+		p.publishingCacheMU.Unlock()
+
+		if err = p.internalPublish(
+			ctx,
+			targets,
+			data,
+			options,
+		); err != nil {
+			return fmt.Errorf(errMessage, err)
+		}
+	}
+
+	p.conn.logger.logDebug(context.Background(), "published messages from cache", "cachedMessagesPublished", cacheLen)
+
+	return nil
 }
 
 func (p *Publisher) cachePublishing(publishing Publishing) error {
@@ -246,46 +288,4 @@ func (p *Publisher) checkPublishingCache() {
 			p.conn.errChanMU.Unlock()
 		}
 	}
-}
-
-// ErrCacheNotSet occurs when the publishing cache is not set.
-var ErrCacheNotSet = errors.New("publishing cache is not set")
-
-func (p *Publisher) PublishCachedMessages(ctx context.Context, cacheLen int) error {
-	const errMessage = "failed to publish cached messages: %w"
-
-	if p.options.PublishingCache == nil {
-		return fmt.Errorf(errMessage, ErrCacheNotSet)
-	}
-
-	p.publishingCacheMU.Lock()
-	publishings, err := p.options.PublishingCache.PopAll()
-	p.publishingCacheMU.Unlock()
-
-	if err != nil {
-		return fmt.Errorf(errMessage, err)
-	}
-
-	for i := range publishings {
-		p.publishingCacheMU.Lock()
-
-		targets := publishings[i].GetTargets()
-		data := publishings[i].GetData()
-		options := publishings[i].GetOptions()
-
-		p.publishingCacheMU.Unlock()
-
-		if err = p.internalPublish(
-			ctx,
-			targets,
-			data,
-			options,
-		); err != nil {
-			return fmt.Errorf(errMessage, err)
-		}
-	}
-
-	p.conn.logger.logDebug(context.Background(), "published messages from cache", "cachedMessagesPublished", cacheLen)
-
-	return nil
 }

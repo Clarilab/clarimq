@@ -10,6 +10,7 @@ type (
 	// Binding describes the binding of a queue to a routing key to an exchange.
 	Binding struct {
 		*BindingOptions
+
 		RoutingKey   string
 		QueueName    string
 		ExchangeName string

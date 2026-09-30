@@ -35,7 +35,7 @@ func (e *AMQPError) Error() string {
 	return fmt.Sprintf("Exception (%d) Reason: %q", e.Code, e.Reason)
 }
 
-// ErrRecoveryFailed occurs when the recovery failed after a connection loss.
+// RecoveryFailedError occurs when the recovery failed after a connection loss.
 type RecoveryFailedError struct {
 	Err            error
 	ConnectionName string
