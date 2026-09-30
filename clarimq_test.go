@@ -1113,11 +1113,9 @@ func Test_Integration_DecodeDeliveryBody(t *testing.T) {
 	requireNoError(t, err)
 
 	delivery := clarimq.Delivery{
-		Delivery: amqp.Delivery{
-			ContentType: "application/json",
-			Timestamp:   time.Now(),
-			Body:        jsonMessage,
-		},
+		ContentType: "application/json",
+		Timestamp:   time.Now(),
+		Body:        jsonMessage,
 	}
 
 	tests := map[string]struct {
@@ -1891,9 +1889,8 @@ func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) { //no
 
 func handleFailedRecovery(chn <-chan error, wg *sync.WaitGroup) {
 	for err := range chn {
-		var recoveryErr *clarimq.RecoveryFailedError
 
-		if errors.As(err, &recoveryErr) {
+		if _, ok := errors.AsType[*clarimq.RecoveryFailedError](err); ok {
 			wg.Done()
 		}
 	}

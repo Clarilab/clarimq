@@ -11,7 +11,7 @@ This library includes support for:
 
 Supported Go Versions
 
-This library supports the most recent Go, currently 1.22.4
+This library supports the most recent Go, currently 1.27.1
 
 ## INSTALL
 
