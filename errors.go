@@ -28,6 +28,19 @@ var ErrInvalidConnection = errors.New("invalid connection")
 // ErrConsumerAlreadyRunning occurs when the consumer is attempted to be started but already running.
 var ErrConsumerAlreadyRunning = errors.New("consumer is running")
 
+// ErrConsumerAlreadyExists occurs when a consumer with the same name is already registered on the connection.
+var ErrConsumerAlreadyExists = errors.New("consumer with this name already exists")
+
+// ErrConnectionClosed occurs when the connection is used after it was closed.
+var ErrConnectionClosed = errors.New("connection is closed")
+
+// ErrPublishNotConfirmed occurs when the broker did not confirm a publishing.
+var ErrPublishNotConfirmed = errors.New("publishing was not confirmed by the broker")
+
+// ErrAMQPRecoveryNotSupported occurs when the built-in recovery of the amqp library is enabled,
+// which would compete with the recovery of this library.
+var ErrAMQPRecoveryNotSupported = errors.New("amqp built-in recovery is not supported, recovery is handled by clarimq")
+
 // AMQPError is a custom error type that wraps amqp errors.
 type AMQPError amqp.Error
 

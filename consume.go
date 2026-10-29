@@ -2,7 +2,9 @@ package clarimq
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync/atomic"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -14,7 +16,7 @@ type (
 		channelExec channelExec
 		options     *ConsumeOptions
 		handler     HandlerFunc
-		isConsuming bool
+		isConsuming atomic.Bool
 	}
 
 	// Delivery captures the fields for a previously delivered message resident in
@@ -51,14 +53,22 @@ func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, option
 		handler:     handler,
 	}
 
-	conn.addConsumerRecoveryFN(consumer.options.ConsumerOptions.Name, consumer.recoverConsumer)
+	consumerName := consumer.options.ConsumerOptions.Name
+
+	if err := conn.addConsumerRecoveryFN(consumerName, consumer.recoverConsumer); err != nil {
+		return nil, fmt.Errorf(errMessage, err)
+	}
 
 	if err := consumer.setupConsumer(); err != nil {
+		conn.removeConsumerRecoveryFN(consumerName)
+
 		return nil, fmt.Errorf(errMessage, err)
 	}
 
 	if consumer.options.ConsumeAfterCreation {
 		if err := consumer.Start(); err != nil {
+			conn.removeConsumerRecoveryFN(consumerName)
+
 			return nil, fmt.Errorf(errMessage, err)
 		}
 	}
@@ -73,17 +83,27 @@ func NewConsumer(conn *Connection, queueName string, handler HandlerFunc, option
 func (c *Consumer) Close() error {
 	const errMessage = "failed to unsubscribe consumer: %w"
 
+	// unregister first, so that the consumer is not recovered even if cancelling fails
+	c.conn.removeConsumerRecoveryFN(c.options.ConsumerOptions.Name)
+
+	var errs []error
+
+	if err := c.conn.cancelConsumer(c.options.ConsumerOptions.Name); err != nil {
+		errs = append(errs, err)
+	}
+
+	c.isConsuming.Store(false)
+
+	// closed after cancelling, so that no new deliveries reach the retry
 	if c.options.RetryOptions != nil {
 		if err := c.closeDeadLetterRetry(); err != nil {
-			return fmt.Errorf(errMessage, err)
+			errs = append(errs, err)
 		}
 	}
 
-	if err := c.conn.cancelConsumer(c.options.ConsumerOptions.Name); err != nil {
+	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf(errMessage, err)
 	}
-
-	c.isConsuming = false
 
 	return nil
 }
@@ -92,11 +112,17 @@ func (c *Consumer) Close() error {
 func (c *Consumer) Start() error {
 	const errMessage = "failed to start: %w"
 
-	if c.isConsuming {
+	if !c.isConsuming.CompareAndSwap(false, true) {
 		return fmt.Errorf(errMessage, ErrConsumerAlreadyRunning)
 	}
 
-	return c.startConsuming()
+	if err := c.startConsuming(); err != nil {
+		c.isConsuming.Store(false)
+
+		return fmt.Errorf(errMessage, err)
+	}
+
+	return nil
 }
 
 func (c *Consumer) setupConsumer() error {
@@ -149,8 +175,6 @@ func (c *Consumer) startConsuming() error {
 		go c.handlerRoutine(deliveries)
 	}
 
-	c.isConsuming = true
-
 	c.conn.logger.logDebug(context.Background(), fmt.Sprintf("Processing messages on %d message handlers", c.options.HandlerQuantity))
 
 	return nil
@@ -178,7 +202,7 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery) {
 	for delivery := range deliveries {
 		delivery := &Delivery{delivery}
 
-		if c.conn.isClosed() {
+		if c.conn.IsClosed() {
 			c.conn.logger.logDebug(context.Background(), "message handler stopped: channel is closed")
 
 			break
@@ -193,17 +217,17 @@ func (c *Consumer) handlerRoutine(deliveries <-chan amqp.Delivery) {
 		switch c.handleMessage(delivery) {
 		case Ack:
 			if err := delivery.Ack(false); err != nil {
-				c.conn.logger.logError(context.Background(), "could not ack message: %v", err)
+				c.conn.logger.logError(context.Background(), "could not ack message", err)
 			}
 
 		case NackDiscard:
 			if err := delivery.Nack(false, false); err != nil {
-				c.conn.logger.logError(context.Background(), "could not nack message: %v", err)
+				c.conn.logger.logError(context.Background(), "could not nack message", err)
 			}
 
 		case NackRequeue:
 			if err := delivery.Nack(false, true); err != nil {
-				c.conn.logger.logError(context.Background(), "could not nack message: %v", err)
+				c.conn.logger.logError(context.Background(), "could not nack message", err)
 			}
 
 		case Manual:
@@ -219,7 +243,7 @@ func (c *Consumer) handleMessage(delivery *Delivery) Action {
 
 	if action == NackDiscard && c.options.RetryOptions != nil {
 		if action, err = c.handleDeadLetterMessage(delivery); err != nil {
-			c.conn.logger.logError(context.Background(), "could not handle dead letter message: %v", err)
+			c.conn.logger.logError(context.Background(), "could not handle dead letter message", err)
 		}
 	}
 
@@ -231,6 +255,11 @@ func (c *Consumer) recoverConsumer() error {
 
 	if err := c.setupConsumer(); err != nil {
 		return fmt.Errorf(errMessage, err)
+	}
+
+	// only consumers that were consuming before the channel was lost are restarted
+	if !c.isConsuming.Load() {
+		return nil
 	}
 
 	if err := c.startConsuming(); err != nil {

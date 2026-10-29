@@ -4,23 +4,28 @@ linters:
   disable:
     - contextcheck
     - depguard
+    - dupword
+    - embeddedstructfieldcheck
     - exhaustruct
     - exhaustruct_v5
     - ginkgolinter
     - godot
+    - godox
     - goheader
-    - gomodguard
     - gosmopolitan
+    - ireturn
     - lll
     - misspell
-    - mnd
     - nakedret
     - noinlineerr
+    - nonamedreturns
     - rowserrcheck
     - sqlclosecheck
     - tagliatelle
     - tparallel
-    - wsl
+    - unparam
+    - varnamelen
+    - wrapcheck
   settings:
     cyclop:
       max-complexity: 20
@@ -47,9 +52,9 @@ linters:
       min-complexity: 20
     godot:
       exclude:
-        - '^fixme:'
-        - '^todo:'
-    gomodguard_v2:
+        - "^fixme:"
+        - "^todo:"
+    gomodguard:
       blocked:
         modules:
           - github.com/golang/protobuf:
@@ -72,6 +77,10 @@ linters:
               recommendations:
                 - github.com/Clarilab/slacklogger/v2
               reason: we want to update this dependency
+        versions:
+          - github.com/savsgio/atreugo/v11:
+              version: ">11.9.9"
+              reason: introduced breaking changes
     govet:
       disable:
         - shadow
@@ -98,6 +107,7 @@ linters:
       allow-no-explanation:
         - funlen
         - lll
+        - wrapcheck
     nonamedreturns:
       report-error-in-defer: true
     paralleltest:
@@ -124,8 +134,6 @@ linters:
         - name: early-return
           severity: warning
           disabled: true
-        - name: enforce-switch-style
-          disabled: true
         - name: exported
           disabled: true
         - name: file-header
@@ -150,6 +158,8 @@ linters:
           disabled: true
         - name: unused-receiver
           disabled: true
+        - name: enforce-switch-style
+          disabled: true
     staticcheck:
       checks:
         - -ST1000
@@ -170,22 +180,15 @@ linters:
         - j
         - k
       ignore-decls:
+        - c echo.Context
         - t testing.T
         - T any
-        - w http.ResponseWriter
-        - r *http.Request
+        - m map[string]int
     wrapcheck:
-      extra-ignore-sigs:
-        - handleError(
-        - HandleError(
       ignore-package-globs:
         - github.com/savsgio/atreugo/*
-    wsl_v5:
-      allow-first-in-block: true
-      allow-whole-block: false
-      branch-max-lines: 2
-      disable:
-        - decl
+    wsl:
+      allow-cuddle-declarations: true
   exclusions:
     generated: lax
     presets:
@@ -241,7 +244,7 @@ linters:
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-  fix: false
+  fix: true
 severity:
   default: warning
   rules:
@@ -249,11 +252,11 @@ severity:
         - asciicheck
         - bidichk
         - containedctx
-        - copyloopvar
         - durationcheck
         - err113
         - errchkjson
         - errorlint
+        - exportloopref
         - gocheckcompilerdirectives
         - gochecknoinits
         - ineffassign
@@ -288,8 +291,7 @@ formatters:
         - pattern: a[0:b]
           replacement: a[:b]
     gofumpt:
-      extra:
-        group-params: true
+      extra-rules: true
   exclusions:
     generated: lax
     paths:
