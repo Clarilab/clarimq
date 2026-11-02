@@ -1653,12 +1653,14 @@ func Test_Recovery_AutomaticRecovery(t *testing.T) {
 		clarimq.WithConnectionOptionLoggers(newTestLogger(publishConnLogBuffer)),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+		clarimq.WithConnectionOptionMaxRecoveryRetries(maxRecoveryTestRetries),
 	)
 
 	consumeConn := getConnection(t,
 		clarimq.WithConnectionOptionLoggers(newTestLogger(consumeConnLogBuffer)),
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+		clarimq.WithConnectionOptionMaxRecoveryRetries(maxRecoveryTestRetries),
 	)
 
 	// msgCounter is used to count the number of deliveries, to compare it afterwords.
@@ -1711,12 +1713,10 @@ func Test_Recovery_AutomaticRecovery(t *testing.T) {
 	requireEqual(t, 1, msgCounter)
 
 	// shutting down the rabbitmq container to simulate a connection loss.
-	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
-	requireNoError(t, err)
+	stopBroker(t)
 
 	// bringing the rabbitmq container up again.
-	err = exec.Command("docker", "compose", "up", "-d").Run()
-	requireNoError(t, err)
+	startBroker(t)
 
 	// While trying to recover, the logger writes information about the recovery state on debug level.
 	// In the following routines, the buffer given to the logger is read until the msg in the
@@ -1837,7 +1837,8 @@ func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 
-	wg.Add(4)
+	// one failed recovery per connection, since the connection recovery also recovers the channel.
+	wg.Add(2)
 
 	// handling the failed recovery notification.
 	go handleFailedRecovery(publishNotifyChan, wg)
@@ -1850,25 +1851,15 @@ func Test_Recovery_AutomaticRecoveryFailedTryManualRecovery(t *testing.T) {
 	requireEqual(t, 1, msgCounter)
 
 	// shutting down the rabbitmq container to simulate a connection loss.
-	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
-	requireNoError(t, err)
+	stopBroker(t)
 
 	// waiting for the failed recovery notification to finish handling.
 	wg.Wait()
 
 	// bringing the rabbitmq container up again.
-	err = exec.Command("docker", "compose", "up", "-d").Run()
-	requireNoError(t, err)
+	startBroker(t)
 
-	// polling to check the container health.
-	for range time.NewTicker(1 * time.Second).C {
-		status, err := exec.Command("docker", "inspect", "-f", "{{.State.Health.Status}}", "rabbitmq").Output()
-		requireNoError(t, err)
-
-		if strings.ReplaceAll(string(status), "\n", "") == "healthy" {
-			break
-		}
-	}
+	waitForHealthyBroker(t)
 
 	// manually recovering.
 	err = publishConn.Recover()
@@ -1902,11 +1893,13 @@ func Test_Recovery_PublishingCache(t *testing.T) {
 	publishConn := getConnection(t,
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+		clarimq.WithConnectionOptionMaxRecoveryRetries(maxRecoveryTestRetries),
 	)
 
 	consumeConn := getConnection(t,
 		clarimq.WithConnectionOptionBackOffFactor(1),
 		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+		clarimq.WithConnectionOptionMaxRecoveryRetries(maxRecoveryTestRetries),
 	)
 
 	wg := &sync.WaitGroup{}
@@ -1955,8 +1948,7 @@ func Test_Recovery_PublishingCache(t *testing.T) {
 	wg.Wait()
 
 	// shutting down the rabbitmq container to simulate a connection loss.
-	err = exec.Command("docker", "compose", "stop", "rabbitmq").Run()
-	requireNoError(t, err)
+	stopBroker(t)
 
 	for range 4 {
 		// publish messages to the queue with while not connected.
@@ -1966,8 +1958,7 @@ func Test_Recovery_PublishingCache(t *testing.T) {
 	}
 
 	// bringing the rabbitmq container up again.
-	err = exec.Command("docker", "compose", "up", "-d").Run()
-	requireNoError(t, err)
+	startBroker(t)
 
 	wg.Add(4)
 
@@ -1978,7 +1969,223 @@ func Test_Recovery_PublishingCache(t *testing.T) {
 	requireNoError(t, err)
 }
 
+func Test_Integration_RecoverHealthyConnection(t *testing.T) {
+	t.Parallel()
+
+	conn := getConnection(t)
+
+	// recovering a healthy connection must not replace it.
+	err := conn.Recover()
+	if !errors.Is(err, clarimq.ErrHealthyConnection) {
+		t.Fatalf("expected %v, got %v", clarimq.ErrHealthyConnection, err)
+	}
+}
+
+func Test_Integration_RenewHealthyConnection(t *testing.T) {
+	t.Parallel()
+
+	message := "test-message"
+
+	publishConn := getConnection(t)
+	consumeConn := getConnection(t)
+
+	queueName := stringGen()
+
+	// collecting the deliveries, to detect duplicate consumers after the renewal.
+	deliveries := make(chan string, 10)
+
+	handler := func(msg *clarimq.Delivery) clarimq.Action {
+		deliveries <- string(msg.Body)
+
+		return clarimq.Ack
+	}
+
+	consumer, err := clarimq.NewConsumer(consumeConn, queueName, handler,
+		clarimq.WithConsumerOptionConsumeAfterCreation(true),
+	)
+	requireNoError(t, err)
+
+	publisher, err := clarimq.NewPublisher(publishConn)
+	requireNoError(t, err)
+
+	t.Cleanup(func() {
+		err := publisher.Close()
+		requireNoError(t, err)
+	})
+
+	err = publishConn.Renew()
+	requireNoError(t, err)
+
+	err = consumeConn.Renew()
+	requireNoError(t, err)
+
+	err = publisher.Publish(context.Background(), queueName, message)
+	requireNoError(t, err)
+
+	requireSingleDelivery(t, deliveries, message)
+
+	err = consumer.Close()
+	requireNoError(t, err)
+
+	_, err = consumeConn.RemoveQueue(queueName, false, false, false)
+	requireNoError(t, err)
+
+	// the replaced connections must not keep the closing from finishing.
+	requireCloseWithin(t, publishConn, 10*time.Second)
+	requireCloseWithin(t, consumeConn, 10*time.Second)
+}
+
+func Test_Recovery_RenewDuringRecovery(t *testing.T) {
+	message := "test-message"
+
+	conn := getConnection(t,
+		clarimq.WithConnectionOptionBackOffFactor(1),
+		clarimq.WithConnectionOptionRecoveryInterval(500*time.Millisecond),
+		clarimq.WithConnectionOptionMaxRecoveryRetries(maxRecoveryTestRetries),
+	)
+
+	queueName := stringGen()
+
+	// collecting the deliveries, to detect duplicate consumers after the renewal.
+	deliveries := make(chan string, 10)
+
+	handler := func(msg *clarimq.Delivery) clarimq.Action {
+		deliveries <- string(msg.Body)
+
+		return clarimq.Ack
+	}
+
+	consumer, err := clarimq.NewConsumer(conn, queueName, handler,
+		clarimq.WithQueueOptionDurable(true),
+		clarimq.WithConsumerOptionConsumeAfterCreation(true),
+	)
+	requireNoError(t, err)
+
+	publisher, err := clarimq.NewPublisher(conn)
+	requireNoError(t, err)
+
+	t.Cleanup(func() {
+		err := publisher.Close()
+		requireNoError(t, err)
+	})
+
+	// shutting down the rabbitmq container, so that the automatic recovery starts.
+	stopBroker(t)
+
+	// renewing while the automatic recovery is running.
+	renewErrChan := make(chan error, 1)
+
+	go func() {
+		renewErrChan <- conn.Renew()
+	}()
+
+	// bringing the rabbitmq container up again.
+	startBroker(t)
+
+	select {
+	case err := <-renewErrChan:
+		requireNoError(t, err)
+	case <-time.After(time.Minute):
+		t.Fatal("renewing the connection did not finish in time")
+	}
+
+	err = publisher.Publish(context.Background(), queueName, message)
+	requireNoError(t, err)
+
+	requireSingleDelivery(t, deliveries, message)
+
+	err = consumer.Close()
+	requireNoError(t, err)
+
+	_, err = conn.RemoveQueue(queueName, false, false, false)
+	requireNoError(t, err)
+
+	requireCloseWithin(t, conn, 10*time.Second)
+}
+
 // ##### helper functions: ##########################
+
+// Requires exactly one delivery of the expected message.
+func requireSingleDelivery(t *testing.T, deliveries <-chan string, expected string) {
+	t.Helper()
+
+	select {
+	case body := <-deliveries:
+		requireEqual(t, expected, body)
+	case <-time.After(10 * time.Second):
+		t.Fatal("message was not delivered in time")
+	}
+
+	select {
+	case body := <-deliveries:
+		t.Fatalf("message %q was delivered more than once", body)
+	case <-time.After(time.Second):
+	}
+}
+
+// Closes the connection and fails if closing does not finish within the timeout.
+func requireCloseWithin(t *testing.T, conn *clarimq.Connection, timeout time.Duration) {
+	t.Helper()
+
+	errChan := make(chan error, 1)
+
+	go func() {
+		errChan <- conn.Close()
+	}()
+
+	select {
+	case err := <-errChan:
+		requireNoError(t, err)
+	case <-time.After(timeout):
+		t.Fatal("closing the connection did not finish in time")
+	}
+}
+
+// maxRecoveryTestRetries allows the recovery tests about 30s (with a 500ms interval) to wait for the broker restart.
+const maxRecoveryTestRetries = 60
+
+// brokerContainer is the name of the rabbitmq container used by the recovery tests.
+const brokerContainer = "rabbitmq"
+
+// containerCLI returns the container engine CLI used to control the broker container.
+// It can be set with the CONTAINER_CLI environment variable, e.g. to "podman".
+func containerCLI() string {
+	if cli := os.Getenv("CONTAINER_CLI"); cli != "" {
+		return cli
+	}
+
+	return "docker"
+}
+
+// Stops the broker container.
+func stopBroker(t *testing.T) {
+	t.Helper()
+
+	err := exec.Command(containerCLI(), "stop", brokerContainer).Run()
+	requireNoError(t, err)
+}
+
+// Starts the stopped broker container.
+func startBroker(t *testing.T) {
+	t.Helper()
+
+	err := exec.Command(containerCLI(), "start", brokerContainer).Run()
+	requireNoError(t, err)
+}
+
+// Polls the health status of the broker container until it is healthy.
+func waitForHealthyBroker(t *testing.T) {
+	t.Helper()
+
+	for range time.NewTicker(1 * time.Second).C {
+		status, err := exec.Command(containerCLI(), "inspect", "-f", "{{.State.Health.Status}}", brokerContainer).Output()
+		requireNoError(t, err)
+
+		if strings.TrimSpace(string(status)) == "healthy" {
+			return
+		}
+	}
+}
 
 // Returns a new connection with the given options.
 func getConnection(t *testing.T, options ...clarimq.ConnectionOption) *clarimq.Connection {

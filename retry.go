@@ -2,8 +2,11 @@ package clarimq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 const (
@@ -84,11 +87,18 @@ func (c *Consumer) setupRetryPublisher() error {
 		if c.options.RetryOptions.RetryConn, err = NewConnection(
 			uri,
 			WithConnectionOptionConnectionName(fmt.Sprintf("%s_%s", c.options.ConsumerOptions.Name, keyRetry)),
+			// the original delivery gets acknowledged after the retry publishing, so it must be confirmed
+			WithConnectionOptionPublisherConfirms(true),
 		); err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
 		c.options.RetryOptions.isInternalConn = true
+	}
+
+	// the publisher is reused on recovery
+	if c.options.RetryOptions.publisher != nil {
+		return nil
 	}
 
 	if c.options.RetryOptions.publisher, err = NewPublisher(c.options.RetryOptions.RetryConn); err != nil {
@@ -181,7 +191,7 @@ func (c *Consumer) handleDeadLetterMessage(
 
 	delivery.Headers[keyRetryCount] = retryCount + 1
 
-	// publish delivery to the next retry queue
+	// publish delivery to the next retry queue, keeping the properties of the original message
 	if err := c.options.RetryOptions.publisher.PublishWithOptions(
 		context.Background(),
 		[]string{fmt.Sprintf("%s_%s", c.options.RetryOptions.dlqNameBase, ttl.String())},
@@ -190,6 +200,15 @@ func (c *Consumer) handleDeadLetterMessage(
 		WithPublishOptionDeliveryMode(PersistentDelivery),
 		WithPublishOptionExchange(c.options.RetryOptions.dlxName),
 		WithPublishOptionHeaders(Table(delivery.Headers)),
+		WithPublishOptionContentType(delivery.ContentType),
+		WithPublishOptionContentEncoding(delivery.ContentEncoding),
+		WithPublishOptionTracing(delivery.CorrelationId),
+		WithPublishOptionReplyTo(delivery.ReplyTo),
+		WithPublishOptionMessageID(delivery.MessageId),
+		WithPublishOptionTimestamp(delivery.Timestamp),
+		WithPublishOptionType(delivery.Type),
+		WithPublishOptionAppID(delivery.AppId),
+		WithPublishOptionPriority(Priority(delivery.Priority)),
 	); err != nil {
 		return NackRequeue, fmt.Errorf(errMessage, err)
 	}
@@ -219,10 +238,7 @@ func (c *Consumer) closeDeadLetterRetry() error {
 func (c *Consumer) cleanupDeadLetterRetry() error {
 	const errMessage = "failed to cleanup dead letter exchange retry %w"
 
-	// remove the dead letter exchange
-	if err := c.options.RetryOptions.RetryConn.amqpChannel.ExchangeDelete(c.options.RetryOptions.dlxName, false, false); err != nil {
-		return fmt.Errorf(errMessage, err)
-	}
+	retryConn := c.options.RetryOptions.RetryConn
 
 	// remove all dead letter queues
 	for i := range c.options.RetryOptions.Delays {
@@ -230,12 +246,25 @@ func (c *Consumer) cleanupDeadLetterRetry() error {
 
 		queueName := fmt.Sprintf("%s_%s", c.options.RetryOptions.dlqNameBase, ttl.String())
 
-		removed, err := c.options.RetryOptions.RetryConn.amqpChannel.QueueDelete(queueName, false, false, false)
+		removed, err := retryConn.RemoveQueue(queueName, false, false, false)
 		if err != nil {
 			return fmt.Errorf(errMessage, err)
 		}
 
 		c.conn.logger.logDebug(context.Background(), "dead letter queue removed due to cleanup", "purgedMessages", removed)
+	}
+
+	// remove the dead letter exchange only if it is not used by other consumers anymore.
+	// a temporary channel is used, since the broker closes the channel if the exchange is still in use.
+	if err := retryConn.temporaryChannelExec(func(channel *amqp.Channel) error {
+		return channel.ExchangeDelete(c.options.RetryOptions.dlxName, true, false)
+	}); err != nil {
+		var amqpErr *amqp.Error
+		if !errors.As(err, &amqpErr) || amqpErr.Code != amqp.PreconditionFailed {
+			return fmt.Errorf(errMessage, err)
+		}
+
+		c.conn.logger.logDebug(context.Background(), "dead letter exchange is still in use, skipping removal", "exchange", c.options.RetryOptions.dlxName)
 	}
 
 	return nil

@@ -5,6 +5,12 @@ import (
 	"log/slog"
 )
 
+const (
+	logKeyIdentifier   = "identifier"
+	logValueIdentifier = "rabbitmq"
+	logKeyError        = "error"
+)
+
 // Logger is an interface that is be used for log messages.
 type Logger interface {
 	Debug(ctx context.Context, msg string, args ...any)
@@ -22,24 +28,32 @@ func newLogger(loggers []Logger) *logger {
 }
 
 func (l *logger) logDebug(ctx context.Context, msg string, args ...any) {
+	args = append(args, identifierAttr())
+
 	for i := range l.loggers {
 		l.loggers[i].Debug(ctx, msg, args...)
 	}
 }
 
 func (l *logger) logError(ctx context.Context, msg string, err error, args ...any) { //nolint:unparam // thats okay
+	args = append(args, identifierAttr())
+
 	for i := range l.loggers {
 		l.loggers[i].Error(ctx, msg, err, args...)
 	}
 }
 
 func (l *logger) logInfo(ctx context.Context, msg string, args ...any) {
+	args = append(args, identifierAttr())
+
 	for i := range l.loggers {
 		l.loggers[i].Info(ctx, msg, args...)
 	}
 }
 
 func (l *logger) logWarn(ctx context.Context, msg string, args ...any) {
+	args = append(args, identifierAttr())
+
 	for i := range l.loggers {
 		l.loggers[i].Warn(ctx, msg, args...)
 	}
@@ -84,8 +98,16 @@ func (s *SlogLogger) Warn(ctx context.Context, msg string, attrs ...any) {
 // Error logs an error message with the provided attributes and error.
 func (s *SlogLogger) Error(ctx context.Context, msg string, err error, attrs ...any) {
 	if err != nil {
-		attrs = append(attrs, "error", err.Error())
+		attrs = append(attrs, errAttr(err))
 	}
 
 	s.logger.ErrorContext(ctx, msg, attrs...)
+}
+
+func identifierAttr() slog.Attr {
+	return slog.String(logKeyIdentifier, logValueIdentifier)
+}
+
+func errAttr(err error) slog.Attr {
+	return slog.Any(logKeyError, err)
 }

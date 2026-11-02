@@ -2,7 +2,6 @@ package clarimq
 
 import (
 	"encoding/json"
-	"fmt"
 	"net"
 	"net/url"
 	"strconv"
@@ -43,6 +42,8 @@ type (
 		RecoveryInterval   time.Duration
 		MaxRecoveryRetries int
 		BackOffFactor      int
+		// If true, the channel is put into confirm mode and each publishing waits for the broker confirmation.
+		PublisherConfirms bool
 	}
 
 	// ConnectionSettings holds settings for a broker connection.
@@ -63,14 +64,14 @@ type (
 // ToURI returns the URI representation of the ConnectionSettings.
 // Includes url escaping for safe usage.
 func (c *ConnectionSettings) ToURI() string {
-	return fmt.Sprintf("amqp://%s:%s@%s/",
-		url.QueryEscape(c.UserName),
-		url.QueryEscape(c.Password),
-		net.JoinHostPort(
-			url.QueryEscape(c.Host),
-			strconv.Itoa(c.Port),
-		),
-	)
+	uri := url.URL{
+		Scheme: "amqp",
+		User:   url.UserPassword(c.UserName, c.Password),
+		Host:   net.JoinHostPort(c.Host, strconv.Itoa(c.Port)),
+		Path:   "/",
+	}
+
+	return uri.String()
 }
 
 func defaultConnectionOptions(uri string) *ConnectionOptions {
@@ -98,9 +99,22 @@ func defaultConnectionOptions(uri string) *ConnectionOptions {
 // It can be used to set all connection options at once.
 func WithCustomConnectionOptions(options *ConnectionOptions) ConnectionOption {
 	return func(opt *ConnectionOptions) {
-		if options != nil {
+		if options != nil { //nolint:nestif // thats okay
 			opt.PrefetchCount = options.PrefetchCount
-			opt.RecoveryInterval = options.RecoveryInterval
+			opt.PublisherConfirms = options.PublisherConfirms
+
+			// zero values are treated as unset to keep the defaults
+			if options.RecoveryInterval > 0 {
+				opt.RecoveryInterval = options.RecoveryInterval
+			}
+
+			if options.MaxRecoveryRetries != 0 {
+				opt.MaxRecoveryRetries = options.MaxRecoveryRetries
+			}
+
+			if options.BackOffFactor > 0 {
+				opt.BackOffFactor = options.BackOffFactor
+			}
 
 			if options.Config != nil {
 				opt.Config = options.Config
@@ -155,6 +169,14 @@ func WithConnectionOptionReturnHandler(returnHandler ReturnHandler) ConnectionOp
 	return func(options *ConnectionOptions) { options.ReturnHandler = returnHandler }
 }
 
+// WithConnectionOptionPublisherConfirms enables publisher confirms. If enabled, each publishing
+// waits until the broker confirmed it and fails if the broker rejected it.
+//
+// Default: false.
+func WithConnectionOptionPublisherConfirms(enabled bool) ConnectionOption {
+	return func(options *ConnectionOptions) { options.PublisherConfirms = enabled }
+}
+
 // WithConnectionOptionRecoveryInterval sets the initial recovery interval.
 //
 // Default: 1s.
@@ -163,6 +185,7 @@ func WithConnectionOptionRecoveryInterval(interval time.Duration) ConnectionOpti
 }
 
 // WithConnectionOptionMaxRecoveryRetries sets the limit for maximum retries.
+// A negative value retries indefinitely.
 //
 // Default: 10.
 func WithConnectionOptionMaxRecoveryRetries(maxRetries int) ConnectionOption {
@@ -180,6 +203,7 @@ func WithConnectionOptionBackOffFactor(factor int) ConnectionOption {
 func (c *Connection) SetLoggers(loggers ...Logger) {
 	if len(loggers) > 0 {
 		c.options.loggers = loggers
+		c.logger.loggers = loggers
 	}
 }
 
@@ -212,6 +236,7 @@ func (c *Connection) SetRecoveryInterval(interval time.Duration) {
 }
 
 // SetMaxRecoveryRetries sets the limit for maximum retries.
+// A negative value retries indefinitely.
 //
 // Default: 10.
 func (c *Connection) SetMaxRecoveryRetries(maxRetries int) {
